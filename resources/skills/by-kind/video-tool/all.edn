@@ -1,0 +1,63 @@
+{:id :fal-kling-o3
+ :kind :video-tool
+ :description "Generate images and videos with Kling O3 — Kling's most powerful model family — via fal.ai.\n"
+ :triggers ["fal kling" "kling o3" "kling video" "kling image"]
+ :category "video-generation"
+ :upstream "https://github.com/fal-ai-community/skills"
+ :prompt "# fal-kling-o3\n\n> Curated from the fal.ai community team.\n\n## What it does\n\nGenerate images and videos with Kling O3 — Kling's most powerful model family — via fal.ai.\n\n## Source\n\n- Upstream: https://github.com/fal-ai-community/skills\n- Category: `video-generation`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/fal-ai-community/skills\n```\n\nThen ask the agent to invoke this skill by name (`fal-kling-o3`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :fal-lip-sync
+ :kind :video-tool
+ :description "Create talking head videos and lip sync audio to video via fal.ai. Useful for explainer avatars, multilingual dubbing previews, and social cuts.\n"
+ :triggers ["lip sync" "talking head" "audio to video" "avatar video" "fal lipsync"]
+ :category "video-generation"
+ :upstream "https://github.com/fal-ai-community/skills"
+ :prompt "# fal-lip-sync\n\n> Curated from the fal.ai community team.\n\n## What it does\n\nCreate talking head videos and lip sync audio to video via fal.ai. Useful for explainer avatars, multilingual dubbing previews, and social cuts.\n\n## Source\n\n- Upstream: https://github.com/fal-ai-community/skills\n- Category: `video-generation`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/fal-ai-community/skills\n```\n\nThen ask the agent to invoke this skill by name (`fal-lip-sync`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :fal-video-edit
+ :kind :video-tool
+ :description "Edit existing videos using AI — remix style, upscale, remove background, and add audio via fal.ai's hosted video models.\n"
+ :triggers ["fal video edit" "video upscale" "video style transfer" "remove video bg" "video remix"]
+ :category "video-generation"
+ :upstream "https://github.com/fal-ai-community/skills"
+ :prompt "# fal-video-edit\n\n> Curated from the fal.ai community team.\n\n## What it does\n\nEdit existing videos using AI — remix style, upscale, remove background, and add audio via fal.ai's hosted video models.\n\n## Source\n\n- Upstream: https://github.com/fal-ai-community/skills\n- Category: `video-generation`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/fal-ai-community/skills\n```\n\nThen ask the agent to invoke this skill by name (`fal-video-edit`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :remotion
+ :kind :video-tool
+ :description "Programmatic video creation with React. Useful for branded explainers, social cuts, dashboards-to-video, and reproducible motion graphics.\n"
+ :triggers ["remotion" "react video" "programmatic video" "motion graphics" "video composition"]
+ :category "video-generation"
+ :upstream "https://github.com/remotion-dev/remotion"
+ :prompt "# remotion\n\n> Curated from the Remotion team.\n\n## What it does\n\nProgrammatic video creation with React. Useful for branded explainers, social cuts, dashboards-to-video, and reproducible motion graphics.\n\n## Source\n\n- Upstream: https://github.com/remotion-dev/remotion\n- Category: `video-generation`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/remotion-dev/remotion\n```\n\nThen ask the agent to invoke this skill by name (`remotion`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :sora
+ :kind :video-tool
+ :description "Generate, remix, and manage short video clips via OpenAI's Sora API. Useful for cinematic shots, b-roll, and rapid concept video iteration.\n"
+ :triggers ["sora" "openai video" "short video" "b roll" "cinematic clip"]
+ :category "video-generation"
+ :upstream "https://github.com/openai/skills"
+ :prompt "# sora\n\n> Curated from OpenAI's skills repository.\n\n## What it does\n\nGenerate, remix, and manage short video clips via OpenAI's Sora API. Useful for cinematic shots, b-roll, and rapid concept video iteration.\n\n## Source\n\n- Upstream: https://github.com/openai/skills\n- Category: `video-generation`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/openai/skills\n```\n\nThen ask the agent to invoke this skill by name (`sora`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :venice-video
+ :kind :video-tool
+ :description "Video generation and transcription workflows via the Venice.ai API.\n"
+ :triggers ["venice video" "venice video gen" "venice transcribe"]
+ :category "video-generation"
+ :upstream "https://github.com/veniceai/skills"
+ :prompt "# venice-video\n\n> Curated from the Venice.ai team.\n\n## What it does\n\nVideo generation and transcription workflows via the Venice.ai API.\n\n## Source\n\n- Upstream: https://github.com/veniceai/skills\n- Category: `video-generation`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/veniceai/skills\n```\n\nThen ask the agent to invoke this skill by name (`venice-video`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :video-downloader
+ :kind :video-tool
+ :description "Download videos from YouTube and other platforms for offline viewing, editing, or archival with support for various formats and quality options.\n"
+ :triggers ["download video" "youtube download" "archive video" "offline video"]
+ :category "video-generation"
+ :upstream "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/video-downloader"
+ :prompt "# video-downloader\n\n> Curated from ComposioHQ awesome-claude-skills.\n\n## What it does\n\nDownload videos from YouTube and other platforms for offline viewing, editing, or archival with support for various formats and quality options.\n\n## Source\n\n- Upstream: https://github.com/ComposioHQ/awesome-claude-skills/tree/master/video-downloader\n- Category: `video-generation`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/ComposioHQ/awesome-claude-skills/tree/master/video-downloader\n```\n\nThen ask the agent to invoke this skill by name (`video-downloader`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :youtube-clipper
+ :kind :video-tool
+ :description "YouTube clip generation and editing with automated workflows — pull source video, slice highlights, add captions, and export.\n"
+ :triggers ["youtube clip" "video clip" "highlight reel" "auto caption clip"]
+ :category "video-generation"
+ :upstream "https://github.com/op7418/Youtube-clipper-skill"
+ :prompt "# youtube-clipper\n\n> Curated from @op7418.\n\n## What it does\n\nYouTube clip generation and editing with automated workflows — pull source video, slice highlights, add captions, and export.\n\n## Source\n\n- Upstream: https://github.com/op7418/Youtube-clipper-skill\n- Category: `video-generation`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/op7418/Youtube-clipper-skill\n```\n\nThen ask the agent to invoke this skill by name (`youtube-clipper`) or with\none of the trigger phrases listed in this skill's frontmatter."}

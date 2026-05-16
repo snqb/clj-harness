@@ -1,0 +1,206 @@
+{;; ── Hospitality ──
+ :pet-hotel
+ {:required ["phone" "address" "price_list" "booking_cta"]
+  :recommended ["working_hours" "photos" "reviews" "veterinarian_on_site" "animal_types_accepted"]
+  :anti_patterns ["ai-generated phone numbers" "no address or city only" "no price information"]
+  :example "ул. Чуй проспект, 123, Бишкек. +996 555 123 456. 8:00–20:00. От 700 сом/сутки."}
+
+ :hotel
+ {:required ["phone" "address" "price_from" "booking_cta" "photos"]
+  :recommended ["room_types" "amenities" "reviews" "map" "check_in_check_out"]
+  :anti_patterns ["no phone number" "no photos of actual rooms" "no pricing"]
+  :example "ул. Ибраимова, 45. +996 312 123 456. От 2500 сом/ночь. 14:00 заезд, 12:00 выезд."}
+
+ :restaurant
+ {:required ["phone" "address" "working_hours" "menu_link"]
+  :recommended ["cuisine_type" "price_range" "photos" "reservation_cta" "map"]
+  :anti_patterns ["no phone for reservations" "menu without prices" "no working hours"]
+  :example "пр. Чуй, 100. +996 700 111 222. 10:00–23:00. Кухня: кыргызская, европейская."}
+
+ :coffee-shop
+ {:required ["address" "working_hours" "phone"]
+  :recommended ["menu" "wifi" "photos" "instagram" "map"]
+  :anti_patterns ["no address" "no opening hours" "generic 'coffee' description"]
+  :example "ул. Токтогула, 78. 7:30–22:00. +996 555 789 012. Wi-Fi: да."}
+
+ :wedding-venue
+ {:required ["phone" "address" "capacity" "price_from" "photos"]
+  :recommended ["included_services" "catering" "parking" "map" "virtual_tour"]
+  :anti_patterns ["no phone" "no photos of actual venue" "no capacity info"]
+  :example "с. Орто-Сай, ул. Центральная, 5. До 200 гостей. От 150 000 сом. +996 700 333 444."}
+
+ ;; ── Services ──
+ :beauty-salon
+ {:required ["phone" "address" "price_list" "working_hours"]
+  :recommended ["services_list" "masters" "photos" "booking_cta" "instagram"]
+  :anti_patterns ["no price list" "no address" "no booking option"]
+  :example "ул. Киевская, 55. +996 555 444 333. 9:00–21:00. Запись: WhatsApp."}
+
+ :barbershop
+ {:required ["address" "working_hours" "price_list" "phone"]
+  :recommended ["booking_cta" "masters" "photos" "instagram"]
+  :anti_patterns ["no price list" "no address" "walk-in only — no booking info"]
+  :example "пр. Манаса, 40. 10:00–20:00. Стрижка от 500 сом. +996 700 222 111."}
+
+ :yoga-studio
+ {:required ["address" "schedule" "price_list" "phone"]
+  :recommended ["instructors" "class_types" "photos" "trial_class" "map"]
+  :anti_patterns ["no schedule" "no price" "no address"]
+  :example "ул. Абдрахманова, 89. Пн–Сб, группы 8:00, 10:00, 19:00. Разовое: 500 сом. +996 555 666 777."}
+
+ :fitness-club
+ {:required ["address" "working_hours" "price_list" "phone"]
+  :recommended ["equipment_list" "trainers" "photos" "trial" "showers_parking"]
+  :anti_patterns ["no price" "no address" "no equipment info"]
+  :example "пр. Чуй, 200. 6:00–23:00. Абонемент от 2500 сом/мес. +996 312 444 555."}
+
+ :car-wash
+ {:required ["address" "working_hours" "price_list" "phone"]
+  :recommended ["services_list" "waiting_area" "photos" "map"]
+  :anti_patterns ["no address" "no prices" "no working hours"]
+  :example "ул. Горького, 12. 8:00–22:00. Мойка кузова от 300 сом. +996 700 888 999."}
+
+ :car-service
+ {:required ["phone" "address" "services_list" "working_hours"]
+  :recommended ["brands" "diagnostics_free" "map" "tow_service"]
+  :anti_patterns ["no phone — emergency need" "no address" "no list of services"]
+  :example "ул. Льва Толстого, 67. 9:00–18:00. Диагностика: бесплатно. +996 555 111 222."}
+
+ :photo-studio
+ {:required ["phone" "address" "price_list" "portfolio_photos"]
+  :recommended ["services" "booking_cta" "instagram" "equipment"]
+  :anti_patterns ["no portfolio" "no prices" "no address"]
+  :example "ул. Боконбаева, 33. Фотосессия от 3000 сом. +996 555 333 222. Instagram: @photo_bishkek."}
+
+ :law-firm
+ {:required ["phone" "address" "specializations" "lawyers_names"]
+  :recommended ["consultation_free" "working_hours" "cases" "languages"]
+  :anti_patterns ["no lawyers' names" "fake certifications" "no specializations"]
+  :example "ул. Московская, 15, офис 401. +996 312 333 444. Специализация: семейное, налоговое, корпоративное. Первая консультация бесплатно."}
+
+ :medical-clinic
+ {:required ["phone" "address" "doctors_list" "working_hours" "license_info"]
+  :recommended ["appointment_cta" "insurance" "map" "services_list"]
+  :anti_patterns ["no license info" "no doctors' names" "no address"]
+  :example "ул. Ахунбаева, 92. +996 312 555 666. Пн–Пт 8:00–18:00, Сб 9:00–14:00. Лицензия №..."}
+
+ :kindergarten
+ {:required ["phone" "address" "age_range" "price" "working_hours"]
+  :recommended ["staff_info" "photos" "schedule" "meals" "license"]
+  :anti_patterns ["no phone" "no address" "no age/price info" "photos without kids (understandable)"]
+  :example "мкр. Джал, 15. Возраст: 2–6 лет. 7:30–18:00. От 12 000 сом/мес. +996 700 111 333."}
+
+ ;; ── Retail ──
+ :clothing-store
+ {:required ["address" "working_hours" "phone" "brands_or_style"]
+  :recommended ["size_range" "price_range" "delivery" "instagram" "photos"]
+  :anti_patterns ["no address" "no phone" "no indication of what they sell"]
+  :example "ТРЦ Bishkek Park, 2 этаж. 10:00–22:00. +996 555 123 789. Женская одежда, размеры 42–56."}
+
+ :flower-shop
+ {:required ["phone" "address" "delivery_info" "price_from"]
+  :recommended ["catalog" "photos" "working_hours" "instagram" "custom_bouquets"]
+  :anti_patterns ["no phone — flowers are ordered by phone" "no delivery info" "no price indication"]
+  :example "ул. Киевская, 10. +996 700 123 456. Доставка по Бишкеку: бесплатно от 1500 сом. Букеты от 800 сом."}
+
+ :pharmacy
+ {:required ["address" "working_hours" "phone" "is_24_7"]
+  :recommended ["delivery" "map" "medication_search"]
+  :anti_patterns ["no address" "no working hours" "no phone for urgent questions"]
+  :example "пр. Чуй, 150. Круглосуточно. +996 312 444 555. Доставка: да."}
+
+ :bookstore
+ {:required ["address" "working_hours" "phone"]
+  :recommended ["catalog" "events" "coffee" "delivery" "genres"]
+  :anti_patterns ["no address" "no phone" "online-only — no storefront"]
+  :example "ул. Тыныстанова, 64. 9:00–20:00. +996 312 222 333. Доставка по городу."}
+
+ ;; ── Tech ──
+ :saas-product
+ {:required ["pricing" "features" "cta_trial_or_demo"]
+  :recommended ["integrations" "testimonials" "docs" "security" "comparison"]
+  :anti_patterns ["no pricing page" "no trial/demo" "vague feature descriptions"]
+  :example "Тарифы: Бесплатный / Pro $29 / Enterprise. 14-дневный триал. Slack, Jira, GitHub интеграции."}
+
+ :mobile-app
+ {:required ["app_store_link" "features" "screenshots"]
+  :recommended ["ratings" "video_demo" "privacy_policy" "support_contact"]
+  :anti_patterns ["no download link" "no screenshots" "no privacy policy"]
+  :example "App Store: 4.8★, Google Play: 4.7★. Бесплатно + подписка от $4.99."}
+
+ :fintech
+ {:required ["license_info" "security" "pricing" "contact"]
+  :recommended ["integrations" "api_docs" "compliance" "testimonials"]
+  :anti_patterns ["no license/regulation info" "vague security claims" "no contact"]
+  :example "Лицензия НБ КР №... PCI DSS, 3D Secure. 0% за переводы до 10 000 сом."}
+
+ :cryptocurrency-exchange
+ {:required ["license_info" "security" "supported_coins" "fees"]
+  :recommended ["kyc_info" "support" "api_docs" "cold_storage"]
+  :anti_patterns ["no license/regulation" "hidden fees" "no security info"]
+  :example "Лицензия: Estonian FIU. 200+ монет. Комиссия: 0.1%. 2FA, холодное хранение 95%."}
+
+ ;; ── Creative ──
+ :photographer-portfolio
+ {:required ["portfolio_photos" "contact" "price_from"]
+  :recommended ["gear" "instagram" "reviews" "booking_cta"]
+  :anti_patterns ["no portfolio" "no contact" "no price indication"]
+  :example "Свадьбы, портреты, коммерция. От 5000 сом/час. +996 555 111 444. Instagram: @photo_almaty."}
+
+ :design-agency
+ {:required ["portfolio" "contact" "services_list"]
+  :recommended ["case_studies" "team" "clients" "process" "pricing_from"]
+  :anti_patterns ["no portfolio" "no case studies" "no team info"]
+  :example "Брендинг, веб-дизайн, упаковка. Клиенты: Namba, Doscredobank. От $2000/проект. +996 312 555 777."}
+
+ :music-studio
+ {:required ["phone" "address" "price_list" "equipment"]
+  :recommended ["engineer_info" "portfolio" "booking_cta" "photos"]
+  :anti_patterns ["no phone" "no address" "no equipment list" "no price"]
+  :example "ул. Тоголок Молдо, 8. Запись + сведение от 5000 сом/трек. +996 555 333 555."}
+
+ ;; ── Real Estate ──
+ :real-estate-agency
+ {:required ["phone" "address" "property_listings" "agent_names"]
+  :recommended ["map_search" "price_filter" "mortgage_info" "reviews"]
+  :anti_patterns ["no phone" "no agent names" "no actual listings — just 'we sell properties'"]
+  :example "ул. Советская, 80. Квартиры, дома, коммерция. +996 312 666 777. Агенты: Айдай, Бекжан."}
+
+ :coworking-space
+ {:required ["address" "price_list" "working_hours" "amenities"]
+  :recommended ["photos" "virtual_tour" "booking_cta" "map" "community"]
+  :anti_patterns ["no address" "no prices" "no amenities list" "24/7 with no security mention"]
+  :example "ул. Исанова, 105. 8:00–22:00. Горячий стол: 800 сом/день. Wi-Fi, кофе, переговорная, принтер."}
+
+ ;; ── Travel ──
+ :travel-agency
+ {:required ["phone" "address" "tour_destinations" "prices_from"]
+  :recommended ["hot_tours" "visa_info" "insurance" "reviews" "instagram"]
+  :anti_patterns ["no phone" "no real destinations — just 'we organize tours'"]
+  :example "ул. Токтогула, 125. Туры в Турцию, ОАЭ, Вьетнам. От $350. +996 312 888 999."}
+
+ ;; ── Generic Fallback ──
+ :landing-page
+ {:required ["cta" "unique_value_proposition"]
+  :recommended ["social_proof" "contact" "pricing" "hero_image"]
+  :anti_patterns ["no CTA" "generic value prop" "no way to contact"]
+  :example "Заголовок: что продаём, кому, почему сейчас. Кнопка: 'Попробовать бесплатно'. Контакты в футере."}
+
+ :personal-website
+ {:required ["name" "about" "contact"]
+  :recommended ["portfolio" "blog" "social_links" "photo"]
+  :anti_patterns ["no name" "no about section" "no contact info"]
+  :example "Имя, должность, фото. Ссылки: GitHub, LinkedIn, Telegram. Email: name@domain.com."}
+
+ :event-page
+ {:required ["date" "location" "registration_link" "description"]
+  :recommended ["schedule" "speakers" "sponsors" "map"]
+  :anti_patterns ["missing date/location" "no registration" "no description"]
+  :example "15 июня 2026, Бишкек, отель Hyatt. Регистрация: event.kg. Спикеры: 5 человек."}
+
+ ;; ── Local Business Generic ──
+ :local-business
+ {:required ["phone" "address" "working_hours"]
+  :recommended ["photos" "map" "reviews" "social_links"]
+  :anti_patterns ["no phone" "no address" "no working hours"]
+  :example "Адрес, телефон, часы работы. Фото заведения. Карта проезда. Ссылки на соцсети."}}

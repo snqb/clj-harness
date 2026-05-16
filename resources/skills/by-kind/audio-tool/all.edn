@@ -1,0 +1,31 @@
+{:id :ai-music-album
+ :kind :audio-tool
+ :description "Full-lifecycle AI music album production — concept, lyric drafting, track sequencing, and export. Useful for indie album experiments and brand soundtracks.\n"
+ :triggers ["ai music" "music album" "lyric writing" "track sequencing" "album production"]
+ :category "audio-music"
+ :upstream "https://github.com/bitwize-music-studio/claude-ai-music-skills"
+ :prompt "# ai-music-album\n\n> Curated from bitwize-music-studio.\n\n## What it does\n\nFull-lifecycle AI music album production — concept, lyric drafting, track sequencing, and export. Useful for indie album experiments and brand soundtracks.\n\n## Source\n\n- Upstream: https://github.com/bitwize-music-studio/claude-ai-music-skills\n- Category: `audio-music`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/bitwize-music-studio/claude-ai-music-skills\n```\n\nThen ask the agent to invoke this skill by name (`ai-music-album`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :speech
+ :kind :audio-tool
+ :description "Generate spoken audio from text using OpenAI's API with built-in voices. Useful for narrated explainers, lecture audio, and quick voiceover tracks.\n"
+ :triggers ["openai speech" "tts openai" "narrated audio" "voice over"]
+ :category "audio-music"
+ :upstream "https://github.com/openai/skills"
+ :prompt "# speech\n\n> Curated from OpenAI's skills repository.\n\n## What it does\n\nGenerate spoken audio from text using OpenAI's API with built-in voices. Useful for narrated explainers, lecture audio, and quick voiceover tracks.\n\n## Source\n\n- Upstream: https://github.com/openai/skills\n- Category: `audio-music`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/openai/skills\n```\n\nThen ask the agent to invoke this skill by name (`speech`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :venice-audio-music
+ :kind :audio-tool
+ :description "Music generation queueing, retrieval, and completion endpoints via Venice.ai. Suited for jingles, background loops, and prototype scoring.\n"
+ :triggers ["venice music" "music gen" "jingle" "background loop" "score"]
+ :category "audio-music"
+ :upstream "https://github.com/veniceai/skills"
+ :prompt "# venice-audio-music\n\n> Curated from the Venice.ai team.\n\n## What it does\n\nMusic generation queueing, retrieval, and completion endpoints via Venice.ai. Suited for jingles, background loops, and prototype scoring.\n\n## Source\n\n- Upstream: https://github.com/veniceai/skills\n- Category: `audio-music`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/veniceai/skills\n```\n\nThen ask the agent to invoke this skill by name (`venice-audio-music`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :venice-audio-speech
+ :kind :audio-tool
+ :description "Text-to-speech models, voices, formats, and streaming via Venice.ai. Useful for narration, voiceover, and conversational agent voices.\n"
+ :triggers ["tts" "venice speech" "text to speech" "voiceover" "narration"]
+ :category "audio-music"
+ :upstream "https://github.com/veniceai/skills"
+ :prompt "# venice-audio-speech\n\n> Curated from the Venice.ai team.\n\n## What it does\n\nText-to-speech models, voices, formats, and streaming via Venice.ai. Useful for narration, voiceover, and conversational agent voices.\n\n## Source\n\n- Upstream: https://github.com/veniceai/skills\n- Category: `audio-music`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/veniceai/skills\n```\n\nThen ask the agent to invoke this skill by name (`venice-audio-speech`) or with\none of the trigger phrases listed in this skill's frontmatter."}

@@ -1,0 +1,39 @@
+{:id :frontend-slides
+ :kind :deck
+ :description "Generate animation-rich HTML presentations with visual style previews. Useful for online keynotes, embedded talks, and interactive briefs.\n"
+ :triggers ["html slides" "animation slides" "interactive deck" "web ppt" "reveal slides"]
+ :category "slides"
+ :upstream "https://github.com/zarazhangrui/frontend-slides"
+ :prompt "# frontend-slides\n\n> Curated from @zarazhangrui.\n\n## What it does\n\nGenerate animation-rich HTML presentations with visual style previews. Useful for online keynotes, embedded talks, and interactive briefs.\n\n## Source\n\n- Upstream: https://github.com/zarazhangrui/frontend-slides\n- Category: `slides`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/zarazhangrui/frontend-slides\n```\n\nThen ask the agent to invoke this skill by name (`frontend-slides`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :nanobanana-ppt
+ :kind :deck
+ :description "AI-powered PPT generation with document analysis and styled images via the NanoBanana stack. Combines image generation with structured deck output.\n"
+ :triggers ["nanobanana ppt" "ai ppt" "styled ppt" "document to ppt" "banana ppt"]
+ :category "image-generation"
+ :upstream "https://github.com/op7418/NanoBanana-PPT-Skills"
+ :prompt "# nanobanana-ppt\n\n> Curated from @op7418.\n\n## What it does\n\nAI-powered PPT generation with document analysis and styled images via the NanoBanana stack. Combines image generation with structured deck output.\n\n## Source\n\n- Upstream: https://github.com/op7418/NanoBanana-PPT-Skills\n- Category: `image-generation`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/op7418/NanoBanana-PPT-Skills\n```\n\nThen ask the agent to invoke this skill by name (`nanobanana-ppt`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :pptx-generator
+ :kind :deck
+ :description "Create and edit PowerPoint presentations from scratch with PptxGenJS — MiniMax's production-tested deck pipeline.\n"
+ :triggers ["pptx generator" "minimax ppt" "deck generator" "auto pptx"]
+ :category "slides"
+ :upstream "https://github.com/MiniMax-AI/skills"
+ :prompt "# pptx-generator\n\n> Curated from the MiniMax AI team.\n\n## What it does\n\nCreate and edit PowerPoint presentations from scratch with PptxGenJS — MiniMax's production-tested deck pipeline.\n\n## Source\n\n- Upstream: https://github.com/MiniMax-AI/skills\n- Category: `slides`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/MiniMax-AI/skills\n```\n\nThen ask the agent to invoke this skill by name (`pptx-generator`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :pptx
+ :kind :deck
+ :description "Read, generate, and adjust PowerPoint slides, layouts, and templates. Useful for executive decks, training material, and product reviews.\n"
+ :triggers ["pptx" "powerpoint" "slide deck" "create slides" "edit pptx"]
+ :category "slides"
+ :upstream "https://github.com/anthropics/skills/tree/main/pptx"
+ :prompt "# pptx\n\n> Curated from Anthropic's official skills repository.\n\n## What it does\n\nRead, generate, and adjust PowerPoint slides, layouts, and templates. Useful for executive decks, training material, and product reviews.\n\n## Source\n\n- Upstream: https://github.com/anthropics/skills/tree/main/pptx\n- Category: `slides`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/anthropics/skills/tree/main/pptx\n```\n\nThen ask the agent to invoke this skill by name (`pptx`) or with\none of the trigger phrases listed in this skill's frontmatter."}
+
+{:id :slides
+ :kind :deck
+ :description "Create and edit .pptx presentation decks with PptxGenJS. Useful for sales decks, kickoff briefs, and design-system showcases.\n"
+ :triggers ["slides" "pptxgenjs" "sales deck" "design showcase deck"]
+ :category "slides"
+ :upstream "https://github.com/openai/skills"
+ :prompt "# slides\n\n> Curated from OpenAI's skills repository.\n\n## What it does\n\nCreate and edit .pptx presentation decks with PptxGenJS. Useful for sales decks, kickoff briefs, and design-system showcases.\n\n## Source\n\n- Upstream: https://github.com/openai/skills\n- Category: `slides`\n\n## How to use\n\nThis catalogue entry advertises the skill in Open Design so the agent\ndiscovers it during planning. To run the full upstream workflow with\nits original assets, scripts, and references, install the upstream\nbundle into your active agent's skills directory:\n\n```bash\n# Inspect the upstream README for exact paths\nopen https://github.com/openai/skills\n```\n\nThen ask the agent to invoke this skill by name (`slides`) or with\none of the trigger phrases listed in this skill's frontmatter."}

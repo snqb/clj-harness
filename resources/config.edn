@@ -1,0 +1,10 @@
+{:openrouter-key #or [#env OPENROUTER_API_KEY "placeholder"]
+ :mcp-url #or [#env MCP_URL "http://127.0.0.1:8000"]
+ :models {:claude-sonnet "anthropic/claude-sonnet-4"
+          :claude-opus "anthropic/claude-opus-4-5"
+          :gemini-flash "google/gemini-2.5-flash"
+          :gpt-4o "openai/gpt-4o"}
+ :agent {:max-turns 15
+         :max-tool-output 8000
+         :compact-threshold 60000
+         :keep-recent 6}}

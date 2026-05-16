@@ -1,0 +1,199 @@
+{:id :8-bit-orbit-video-template :kind :skill :category "" :desc "Hyperframes-based video template for retro pixel deck motion design.\nUse when users want a high-fide"}
+{:id :ad-creative :kind :skill :category "marketing-creative" :desc "Generate and iterate ad creative including headlines, descriptions, and primary text. Useful for pai"}
+{:id :after-hours-editorial-template :kind :skill :category "" :desc "Luxury dark-editorial HyperFrames template for three-page cinematic storyboards,\ninspired by haute c"}
+{:id :agent-browser :kind :skill :category "" :desc "Browser automation CLI for AI agents. Use when the user needs to inspect,\ntest, or automate browser "}
+{:id :ai-music-album :kind :skill :category "audio-music" :desc "Full-lifecycle AI music album production — concept, lyric drafting, track sequencing, and export. Us"}
+{:id :algorithmic-art :kind :skill :category "image-generation" :desc "Create generative art using p5.js with seeded randomness so every render is reproducible. Useful for"}
+{:id :apple-hig :kind :skill :category "design-systems" :desc "Apple Human Interface Guidelines as 14 agent skills covering platforms, foundations, components, pat"}
+{:id :artifacts-builder :kind :skill :category "web-artifacts" :desc "Suite of tools for creating elaborate, multi-component claude.ai HTML artifacts using modern fronten"}
+{:id :brainstorming :kind :skill :category "creative-direction" :desc "Transform rough ideas into fully-formed designs through structured questioning and alternative explo"}
+{:id :brand-guidelines :kind :skill :category "design-systems" :desc "Apply Anthropic's official brand colors and typography to artifacts for consistent visual identity a"}
+{:id :canvas-design :kind :skill :category "image-generation" :desc "Create beautiful visual art in PNG and PDF documents using design philosophy and aesthetic principle"}
+{:id :color-expert :kind :skill :category "design-systems" :desc "Color science expert skill with 286K words of reference material covering OKLCH/OKLAB, palette gener"}
+{:id :competitive-ads-extractor :kind :skill :category "marketing-creative" :desc "Extract and analyze competitors' ads from ad libraries to understand messaging and creative approach"}
+{:id :copywriting :kind :skill :category "marketing-creative" :desc "Write and rewrite marketing copy for landing pages, homepages, and ads. Useful as a copy chief partn"}
+{:id :creative-director :kind :skill :category "creative-direction" :desc "AI creative director with recursive self-assessment: 20+ methodologies (SIT, TRIZ, Bisociation, SCAM"}
+{:id :d3-visualization :kind :skill :category "diagrams" :desc "Teaches the agent to produce D3 charts and interactive data visualizations. Useful for editorial das"}
+{:id :design-brief :kind :skill :category "" :desc "Parse a structured design brief written in I-Lang protocol format into a\nconcrete design spec. Elimi"}
+{:id :design-consultation :kind :skill :category "creative-direction" :desc "Build a complete design system from scratch with creative risks and realistic product mockups. Usefu"}
+{:id :design-md :kind :skill :category "design-systems" :desc "Create and manage DESIGN.md files. Useful for capturing design direction, tokens, and visual rules i"}
+{:id :design-review :kind :skill :category "creative-direction" :desc "Designer Who Codes: visual audit then fixes with atomic commits and before/after screenshots. Useful"}
+{:id :digits-fintech-swiss-template :kind :skill :category "" :desc "Swiss-grid fintech deck template in black / warm paper / neon-lime contrast.\nUse when users ask for "}
+{:id :doc :kind :skill :category "documents" :desc "Read, create, and edit .docx documents with formatting and layout fidelity via OpenAI's document ski"}
+{:id :docx :kind :skill :category "documents" :desc "Create, edit, and analyze Word documents with tracked changes, comments, and formatting. Useful for "}
+{:id :domain-name-brainstormer :kind :skill :category "marketing-creative" :desc "Generate creative domain name ideas and check availability across multiple TLDs including .com, .io,"}
+{:id :editorial-burgundy-principles-template :kind :skill :category "" :desc "Editorial studio deck template in burgundy / blush / muted-gold palette.\nUse when users ask for prem"}
+{:id :enhance-prompt :kind :skill :category "design-systems" :desc "Improve prompts with design specs and UI/UX vocabulary. Useful for design-to-code workflows and clar"}
+{:id :fal-3d :kind :skill :category "3d-shaders" :desc "Generate 3D models from text or images via fal.ai. Useful for game assets, AR previews, product mock"}
+{:id :fal-generate :kind :skill :category "image-generation" :desc "Generate images and videos using fal.ai AI models. Production-grade catalogue covering Flux, SDXL, i"}
+{:id :fal-image-edit :kind :skill :category "image-generation" :desc "AI-powered image editing with style transfer, background removal, object removal, and inpainting via"}
+{:id :fal-kling-o3 :kind :skill :category "video-generation" :desc "Generate images and videos with Kling O3 — Kling's most powerful model family — via fal.ai.\n"}
+{:id :fal-lip-sync :kind :skill :category "video-generation" :desc "Create talking head videos and lip sync audio to video via fal.ai. Useful for explainer avatars, mul"}
+{:id :fal-realtime :kind :skill :category "image-generation" :desc "Real-time and streaming AI image generation via fal.ai. Suited for moodboard exploration, draft vari"}
+{:id :fal-restore :kind :skill :category "image-generation" :desc "Restore and fix image quality — deblur, denoise, fix faces, and restore old documents using fal.ai's"}
+{:id :fal-train :kind :skill :category "image-generation" :desc "Train custom AI models (LoRA) on fal.ai for personalized image generation tailored to a brand, chara"}
+{:id :fal-tryon :kind :skill :category "image-generation" :desc "Virtual try-on — see how clothes look on a person via fal.ai's hosted try-on models. Useful for ecom"}
+{:id :fal-upscale :kind :skill :category "image-generation" :desc "Upscale and enhance image and video resolution using AI super-resolution models hosted on fal.ai.\n"}
+{:id :fal-video-edit :kind :skill :category "video-generation" :desc "Edit existing videos using AI — remix style, upscale, remove background, and add audio via fal.ai's "}
+{:id :fal-vision :kind :skill :category "image-generation" :desc "Analyze images — segment objects, detect, run OCR, describe, and answer visual questions via fal.ai "}
+{:id :faq-page :kind :skill :category "" :desc "A Frequently Asked Questions (FAQ) page with collapsible accordion sections,\nsearch functionality, a"}
+{:id :field-notes-editorial-template :kind :skill :category "" :desc "Editorial \"Field Notes\" report template with soft paper background, serif hero\ntypography, rounded p"}
+{:id :figma-code-connect-components :kind :skill :category "figma" :desc "Connect Figma design components to code components using Code Connect so design-system updates flow "}
+{:id :figma-create-design-system-rules :kind :skill :category "figma" :desc "Generate project-specific design system rules for Figma-to-code workflows. Useful for capturing toke"}
+{:id :figma-create-new-file :kind :skill :category "figma" :desc "Create a new blank Figma Design or FigJam file. Useful as the first step in scripted design-system o"}
+{:id :figma-generate-design :kind :skill :category "figma" :desc "Build or update screens in Figma from code or description using design system components. Translate "}
+{:id :figma-generate-library :kind :skill :category "figma" :desc "Build or update a professional-grade design system library in Figma from a codebase. Useful for keep"}
+{:id :figma-implement-design :kind :skill :category "figma" :desc "Translate Figma designs into production-ready code with 1:1 visual fidelity. Useful for handing off "}
+{:id :figma-use :kind :skill :category "figma" :desc "Run Figma Plugin API scripts for canvas writes, inspections, variables, and design-system work. Prer"}
+{:id :flutter-animating-apps :kind :skill :category "animation-motion" :desc "Implement animated effects, transitions, and motion in Flutter apps. Useful for native iOS/Android m"}
+{:id :frontend-design :kind :skill :category "design-systems" :desc "Frontend design and UI/UX development tools for shipping production-ready interfaces with strong typ"}
+{:id :frontend-dev :kind :skill :category "web-artifacts" :desc "Full-stack frontend with cinematic animations, AI-generated media via MiniMax API, and generative ar"}
+{:id :frontend-skill :kind :skill :category "design-systems" :desc "Create visually strong landing pages, websites, and app UIs with restrained composition. OpenAI's pr"}
+{:id :frontend-slides :kind :skill :category "slides" :desc "Generate animation-rich HTML presentations with visual style previews. Useful for online keynotes, e"}
+{:id :full-page-screenshot :kind :skill :category "screenshots" :desc "Capture full-page screenshots of web pages via Chrome DevTools Protocol with zero dependencies. Usef"}
+{:id :gif-sticker-maker :kind :skill :category "image-generation" :desc "Convert photos into animated GIF stickers in Funko Pop / Pop Mart style via the MiniMax API. Useful "}
+{:id :gsap-core :kind :skill :category "animation-motion" :desc "Core GSAP API with gsap.to(), from(), fromTo(), easing, duration, stagger, and defaults. Production-"}
+{:id :gsap-react :kind :skill :category "animation-motion" :desc "GSAP React integration with useGSAP hook, refs, gsap.context(), cleanup, and SSR. Ships safe motion "}
+{:id :gsap-scrolltrigger :kind :skill :category "animation-motion" :desc "GSAP ScrollTrigger for scroll-linked animations, pinning, scrub, and refresh handling. Useful for ed"}
+{:id :gsap-timeline :kind :skill :category "animation-motion" :desc "GSAP Timelines with sequencing, position parameter, labels, nesting, and playback control. Useful fo"}
+{:id :hand-drawn-diagrams :kind :skill :category "diagrams" :desc "Generate hand-drawn Excalidraw diagrams from a prompt — animated SVG, hosted edit link, and PNG expo"}
+{:id :hatch-pet :kind :skill :category "" :desc "Create, repair, validate, preview, and package Codex-compatible animated pet spritesheets from chara"}
+{:id :html-ppt-retro-quarterly-review :kind :skill :category "" :desc "Retro Quarterly Review presentation template in a bold blue + orange editorial\nlanguage. Use when us"}
+{:id :image-enhancer :kind :skill :category "image-generation" :desc "Improve image and screenshot quality by enhancing resolution, sharpness, and clarity for professiona"}
+{:id :imagegen :kind :skill :category "image-generation" :desc "Generate and edit images using OpenAI's Image API for project assets — UI mockups, icons, illustrati"}
+{:id :imagen :kind :skill :category "image-generation" :desc "Generate images using Google Gemini's image generation API for UI mockups, icons, illustrations, and"}
+{:id :login-flow :kind :skill :category "" :desc "Mobile login and authentication flow screens"}
+{:id :marketing-psychology :kind :skill :category "marketing-creative" :desc "Apply psychological principles and behavioral science to copy and design. Useful for tightening hook"}
+{:id :minimax-docx :kind :skill :category "documents" :desc "Professional DOCX document creation and editing using OpenXML SDK. Useful for branded reports, polis"}
+{:id :minimax-pdf :kind :skill :category "documents" :desc "Generate, fill, and reformat PDFs with a token-based design system and 15 cover styles. Useful for b"}
+{:id :nanobanana-ppt :kind :skill :category "image-generation" :desc "AI-powered PPT generation with document analysis and styled images via the NanoBanana stack. Combine"}
+{:id :paywall-upgrade-cro :kind :skill :category "marketing-creative" :desc "Design and optimize upgrade screens, paywalls, and upsell modals. Useful for SaaS conversion design "}
+{:id :pdf :kind :skill :category "documents" :desc "Extract text, create PDFs, and handle forms. Useful for press releases, branded one-pagers, and prin"}
+{:id :pixelbin-media :kind :skill :category "image-generation" :desc "Generate and edit images and videos with an 85+ API portfolio and build visually appealing website p"}
+{:id :plan-design-review :kind :skill :category "creative-direction" :desc "Senior Designer review: rates each design dimension 0-10, explains what a 10 looks like, and flags A"}
+{:id :platform-design :kind :skill :category "design-systems" :desc "300+ design rules from Apple HIG, Material Design 3, and WCAG 2.2 for cross-platform apps. Useful wh"}
+{:id :pptx :kind :skill :category "slides" :desc "Read, generate, and adjust PowerPoint slides, layouts, and templates. Useful for executive decks, tr"}
+{:id :pptx-generator :kind :skill :category "slides" :desc "Create and edit PowerPoint presentations from scratch with PptxGenJS — MiniMax's production-tested d"}
+{:id :pptx-html-fidelity-audit :kind :skill :category "" :desc "Audit a python-pptx export against its source HTML deck, identify layout/content drift (footer overf"}
+{:id :release-notes-one-pager :kind :skill :category "" :desc "Release notes one-page HTML with highlights, Added, Fixed, Breaking changes,\nKnown issues, and Upgra"}
+{:id :remotion :kind :skill :category "video-generation" :desc "Programmatic video creation with React. Useful for branded explainers, social cuts, dashboards-to-vi"}
+{:id :replicate :kind :skill :category "image-generation" :desc "Discover, compare, and run AI models using Replicate's API. Strong fit for image, audio, and video g"}
+{:id :screenshot :kind :skill :category "screenshots" :desc "Capture desktop, app windows, or pixel regions across OS platforms. Useful for marketing screenshots"}
+{:id :screenshots-marketing :kind :skill :category "screenshots" :desc "Generate marketing screenshots with Playwright. Useful for landing-page hero shots, App Store screen"}
+{:id :shadcn-ui :kind :skill :category "design-systems" :desc "Build UI components with shadcn/ui. Pairs with the Stitch design loop to ship structured, accessible"}
+{:id :shader-dev :kind :skill :category "3d-shaders" :desc "GLSL shader techniques for ray marching, fluid simulation, particle systems, and procedural generati"}
+{:id :slack-gif-creator :kind :skill :category "image-generation" :desc "Create animated GIFs optimized for Slack with validators for size constraints and composable animati"}
+{:id :slides :kind :skill :category "slides" :desc "Create and edit .pptx presentation decks with PptxGenJS. Useful for sales decks, kickoff briefs, and"}
+{:id :sora :kind :skill :category "video-generation" :desc "Generate, remix, and manage short video clips via OpenAI's Sora API. Useful for cinematic shots, b-r"}
+{:id :speech :kind :skill :category "audio-music" :desc "Generate spoken audio from text using OpenAI's API with built-in voices. Useful for narrated explain"}
+{:id :stitch-loop :kind :skill :category "design-systems" :desc "Iterative design-to-code feedback loop. Critique → adjust → ship cycle for tightening visual fidelit"}
+{:id :swiftui-design :kind :skill :category "design-systems" :desc "SwiftUI 前端设计 skill — anti AI-slop rules, design direction advisor, brand asset protocol, and five-di"}
+{:id :swiss-creative-mode-template :kind :skill :category "" :desc "Swiss-inspired creative-mode presentation template skill with bold editorial\ntypography, high-contra"}
+{:id :swiss-user-research-video-template :kind :skill :category "" :desc "Swiss-style user-research narrative template in warm-paper editorial aesthetics.\nUse when users ask "}
+{:id :taste-skill :kind :skill :category "design-systems" :desc "High-agency frontend skill that gives AI good taste with tunable design variance, motion intensity, "}
+{:id :theme-factory :kind :skill :category "design-systems" :desc "Apply professional font and color themes to artifacts including slides, docs, reports, and HTML land"}
+{:id :threejs :kind :skill :category "3d-shaders" :desc "Three.js skills for creating 3D elements and interactive experiences in the browser — scenes, materi"}
+{:id :ui-skills :kind :skill :category "design-systems" :desc "Opinionated, evolving constraints to guide agents when building interfaces. Useful for keeping outpu"}
+{:id :ui-ux-pro-max :kind :skill :category "design-systems" :desc "UI/UX design patterns and best practices. Pattern library + heuristic checks for shipping clean, usa"}
+{:id :venice-audio-music :kind :skill :category "audio-music" :desc "Music generation queueing, retrieval, and completion endpoints via Venice.ai. Suited for jingles, ba"}
+{:id :venice-audio-speech :kind :skill :category "audio-music" :desc "Text-to-speech models, voices, formats, and streaming via Venice.ai. Useful for narration, voiceover"}
+{:id :venice-image-edit :kind :skill :category "image-generation" :desc "Image edits, upscaling, and background removal via the Venice.ai API.\n"}
+{:id :agentic :kind :design-system :category "Themed & Unique" :desc "Agentic"}
+{:id :airbnb :kind :design-system :category "E-Commerce & Retail" :desc "Airbnb"}
+{:id :airtable :kind :design-system :category "Design & Creative" :desc "Airtable"}
+{:id :ant :kind :design-system :category "Professional & Corporate" :desc "Ant"}
+{:id :apple :kind :design-system :category "Media & Consumer" :desc "Apple"}
+{:id :application :kind :design-system :category "Professional & Corporate" :desc "Application"}
+{:id :arc :kind :design-system :category "Productivity & SaaS" :desc "Arc Browser"}
+{:id :artistic :kind :design-system :category "Creative & Artistic" :desc "Artistic"}
+{:id :atelier-zero :kind :design-system :category "Editorial · Studio" :desc "Atelier Zero"}
+{:id :bento :kind :design-system :category "Layout & Structure" :desc "Bento"}
+{:id :binance :kind :design-system :category "Fintech & Crypto" :desc "Binance.US"}
+{:id :bmw :kind :design-system :category "Automotive" :desc "BMW"}
+{:id :bmw-m :kind :design-system :category "Automotive" :desc "BMW M"}
+{:id :bold :kind :design-system :category "Bold & Expressive" :desc "Bold"}
+{:id :brutalism :kind :design-system :category "Bold & Expressive" :desc "Brutalism"}
+{:id :bugatti :kind :design-system :category "Automotive" :desc "Bugatti"}
+{:id :cafe :kind :design-system :category "Creative & Artistic" :desc "Cafe"}
+{:id :cal :kind :design-system :category "Productivity & SaaS" :desc "Cal.com"}
+{:id :canva :kind :design-system :category "Design & Creative" :desc "Canva"}
+{:id :cisco :kind :design-system :category "Backend & Data" :desc "Cisco"}
+{:id :claude :kind :design-system :category "AI & LLM" :desc "Claude (Anthropic)"}
+{:id :clay :kind :design-system :category "Design & Creative" :desc "Clay"}
+{:id :claymorphism :kind :design-system :category "Morphism & Effects" :desc "Claymorphism"}
+{:id :clean :kind :design-system :category "Modern & Minimal" :desc "Clean"}
+{:id :clickhouse :kind :design-system :category "Backend & Data" :desc "ClickHouse"}
+{:id :cohere :kind :design-system :category "AI & LLM" :desc "Cohere"}
+{:id :coinbase :kind :design-system :category "Fintech & Crypto" :desc "Coinbase"}
+{:id :colorful :kind :design-system :category "Bold & Expressive" :desc "Colorful"}
+{:id :composio :kind :design-system :category "Backend & Data" :desc "Composio"}
+{:id :contemporary :kind :design-system :category "Modern & Minimal" :desc "Contemporary"}
+{:id :corporate :kind :design-system :category "Professional & Corporate" :desc "Corporate"}
+{:id :cosmic :kind :design-system :category "Creative & Artistic" :desc "Cosmic"}
+{:id :creative :kind :design-system :category "Creative & Artistic" :desc "Creative"}
+{:id :cursor :kind :design-system :category "Developer Tools" :desc "Cursor"}
+{:id :dashboard :kind :design-system :category "Professional & Corporate" :desc "Dashboard"}
+{:id :default :kind :design-system :category "Starter" :desc "Neutral Modern"}
+{:id :discord :kind :design-system :category "Productivity & SaaS" :desc "Discord"}
+{:id :dithered :kind :design-system :category "Retro & Nostalgic" :desc "Dithered"}
+{:id :doodle :kind :design-system :category "Creative & Artistic" :desc "Doodle"}
+{:id :dramatic :kind :design-system :category "Bold & Expressive" :desc "Dramatic"}
+{:id :duolingo :kind :design-system :category "Productivity & SaaS" :desc "Duolingo"}
+{:id :editorial :kind :design-system :category "Creative & Artistic" :desc "Editorial"}
+{:id :elegant :kind :design-system :category "Professional & Corporate" :desc "Elegant"}
+{:id :elevenlabs :kind :design-system :category "AI & LLM" :desc "ElevenLabs"}
+{:id :energetic :kind :design-system :category "Bold & Expressive" :desc "Energetic"}
+{:id :enterprise :kind :design-system :category "Professional & Corporate" :desc "Enterprise"}
+{:id :expo :kind :design-system :category "Developer Tools" :desc "Expo"}
+{:id :expressive :kind :design-system :category "Bold & Expressive" :desc "Expressive"}
+{:id :fantasy :kind :design-system :category "Creative & Artistic" :desc "Fantasy"}
+{:id :ferrari :kind :design-system :category "Automotive" :desc "Ferrari"}
+{:id :figma :kind :design-system :category "Design & Creative" :desc "Figma"}
+{:id :flat :kind :design-system :category "Modern & Minimal" :desc "Flat"}
+{:id :framer :kind :design-system :category "Design & Creative" :desc "Framer"}
+{:id :friendly :kind :design-system :category "Creative & Artistic" :desc "Friendly"}
+{:id :futuristic :kind :design-system :category "Themed & Unique" :desc "Futuristic"}
+{:id :github :kind :design-system :category "Developer Tools" :desc "GitHub"}
+{:id :glassmorphism :kind :design-system :category "Morphism & Effects" :desc "Glassmorphism"}
+{:id :gradient :kind :design-system :category "Morphism & Effects" :desc "Gradient"}
+{:id :hashicorp :kind :design-system :category "Backend & Data" :desc "HashiCorp"}
+{:id :hud :kind :design-system :category "Themed & Unique" :desc "HUD Design System"}
+{:id :huggingface :kind :design-system :category "AI & LLM" :desc "Hugging Face"}
+{:id :ibm :kind :design-system :category "Media & Consumer" :desc "IBM"}
+{:id :intercom :kind :design-system :category "Productivity & SaaS" :desc "Intercom"}
+{:id :kami :kind :design-system :category "Editorial & Print" :desc "kami (紙 / 纸)"}
+{:id :kraken :kind :design-system :category "Fintech & Crypto" :desc "Kraken"}
+{:id :lamborghini :kind :design-system :category "Automotive" :desc "Lamborghini"}
+{:id :levels :kind :design-system :category "Layout & Structure" :desc "Levels"}
+{:id :linear-app :kind :design-system :category "Productivity & SaaS" :desc "Linear"}
+{:id :lingo :kind :design-system :category "Creative & Artistic" :desc "Lingo"}
+{:id :loom :kind :design-system :category "Themed & Unique" :desc "Loom Design System"}
+{:id :lovable :kind :design-system :category "Developer Tools" :desc "Lovable"}
+{:id :luxury :kind :design-system :category "Professional & Corporate" :desc "Luxury"}
+{:id :mastercard :kind :design-system :category "Fintech & Crypto" :desc "Mastercard"}
+{:id :material :kind :design-system :category "Professional & Corporate" :desc "Material"}
+{:id :meta :kind :design-system :category "E-Commerce & Retail" :desc "Meta (Store)"}
+{:id :minimal :kind :design-system :category "Modern & Minimal" :desc "Minimal"}
+{:id :minimax :kind :design-system :category "AI & LLM" :desc "MiniMax"}
+{:id :mintlify :kind :design-system :category "Productivity & SaaS" :desc "Mintlify"}
+{:id :miro :kind :design-system :category "Design & Creative" :desc "Miro"}
+{:id :mission-control :kind :design-system :category "Developer Tools" :desc "Mission Control Design System"}
+{:id :mistral-ai :kind :design-system :category "AI & LLM" :desc "Mistral AI"}
+{:id :modern :kind :design-system :category "Modern & Minimal" :desc "Modern"}
+{:id :mongodb :kind :design-system :category "Backend & Data" :desc "MongoDB"}
+{:id :mono :kind :design-system :category "Modern & Minimal" :desc "Mono"}
+{:id :neobrutalism :kind :design-system :category "Bold & Expressive" :desc "Neobrutalism"}
+{:id :neon :kind :design-system :category "Morphism & Effects" :desc "Neon"}
+{:id :neumorphism :kind :design-system :category "Morphism & Effects" :desc "Neumorphism"}
+{:id :nike :kind :design-system :category "E-Commerce & Retail" :desc "Nike"}
+{:id :notion :kind :design-system :category "Productivity & SaaS" :desc "Notion"}
+{:id :nvidia :kind :design-system :category "Media & Consumer" :desc "NVIDIA"}
+{:id :ollama :kind :design-system :category "AI & LLM" :desc "Ollama"}
+{:id :openai :kind :design-system :category "AI & LLM" :desc "OpenAI"}
+{:id :opencode-ai :kind :design-system :category "AI & LLM" :desc "OpenCode"}
+{:id :pacman :kind :design-system :category "Themed & Unique" :desc "Pacman"}
+{:id :paper :kind :design-system :category "Retro & Nostalgic" :desc "Paper"}
+{:id :perspective :kind :design-system :category "Layout & Structure" :desc "Perspective"}
+{:id :pinterest :kind :design-system :category "Media & Consumer" :desc "Pinterest"}
+{:id :playstation :kind :design-system :category "Media & Consumer" :desc "PlayStation"}
+{:id :posthog :kind :design-system :category "Backend & Data" :desc "PostHog"}
