@@ -52,16 +52,19 @@
 ;; ══════════════════════ HELPERS ══════════════════════
 
 (defn- render-final
-  "Render final accumulated text: md→html → split → edit first + send rest."
-  [chat-id msg-id ^String text]
+  "Render final accumulated text: md→html → split → edit first + send rest.
+   Passes reply_markup to the edit (e.g. reset keyboard)."
+  [chat-id msg-id ^String text & {:keys [reply_markup]}]
   (let [html (fmt/md->html text)
         chunks (fmt/split-message html)]
     (if (= 1 (count chunks))
-      (tg/edit-message chat-id msg-id (first chunks) :parse-mode "HTML" :preview false)
+      (tg/edit-message chat-id msg-id (first chunks)
+                       :parse-mode "HTML" :preview false :reply_markup reply_markup)
       (do
-        (tg/edit-message chat-id msg-id (first chunks) :parse-mode "HTML" :preview false)
+        (tg/edit-message chat-id msg-id (first chunks)
+                         :parse-mode "HTML" :preview false :reply_markup reply_markup)
         (doseq [chunk (rest chunks)]
-          (tg/send-message chat-id chunk :parse-mode "HTML" :preview false))))))
+          (tg/send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup))))))
 
 ;; ══════════════════════ MAIN ══════════════════════
 
@@ -75,35 +78,39 @@
      :throttle-ms    — edit throttle interval in ms (default 800)
      :parse-mode     — text parse-mode for status/delta previews (default nil = plain)
                        Final edit always uses HTML.
+     :reset-button?  — attach '🔄 Новый диалог' ReplyKeyboardMarkup to final message
+                       Tapping sends '/reset' as text — wire to your command handler.
 
    Returns a go-block that resolves to the final accumulated text."
-  [chat-id ch & {:keys [placeholder throttle-ms parse-mode]
+  [chat-id ch & {:keys [placeholder throttle-ms parse-mode reset-button?]
                  :or {placeholder default-placeholder
                       throttle-ms default-throttle-ms
                       parse-mode nil}}]
-  (go
-    (try
-      ;; Phase 1: typing + placeholder
-      (tg/send-typing chat-id)
-      (let [placeholder-msg (tg/send-message chat-id placeholder
-                                             :parse-mode parse-mode
-                                             :preview false)
-            msg-id (some-> placeholder-msg (get "result") (get "message_id"))]
-        (if (not msg-id)
-          ;; Fallback: no message to edit — send each chunk as separate message
-          (loop [acc ""]
-            (if-let [msg (<! ch)]
-              (case (:type msg)
-                :delta (recur (str acc (:text msg)))
-                :finish (do (tg/send-md chat-id (str acc))
-                            (str acc))
-                ;; :status, unknown — ignore
-                (recur acc))
-              ;; Channel closed
-              (do
-                (when (seq acc)
-                  (tg/send-md chat-id acc))
-                acc)))
+  (let [reply_markup (when reset-button? (tg/reset-keyboard))]
+    (go
+      (try
+        ;; Phase 1: typing + placeholder
+        (tg/send-typing chat-id)
+        (let [placeholder-msg (tg/send-message chat-id placeholder
+                                               :parse-mode parse-mode
+                                               :preview false)
+              msg-id (some-> placeholder-msg (get "result") (get "message_id"))]
+          (if (not msg-id)
+            ;; Fallback: no message to edit — send each chunk as separate message
+            (loop [acc ""]
+              (if-let [msg (<! ch)]
+                (case (:type msg)
+                  :delta (recur (str acc (:text msg)))
+                  :finish (do (tg/send-md chat-id (str acc)
+                                          :reply_markup reply_markup)
+                              (str acc))
+                  ;; :status, unknown — ignore
+                  (recur acc))
+                ;; Channel closed
+                (do
+                  (when (seq acc)
+                    (tg/send-md chat-id acc :reply_markup reply_markup))
+                  acc))))
 
           ;; Phase 2: streaming with progressive edits
           (let [tick-ch (ticker-chan throttle-ms)
@@ -118,7 +125,7 @@
                     ;; Both channels closed → finalize
                     (let [text @acc]
                       (when (and (seq text) (not= text @last-sent))
-                        (render-final chat-id msg-id text))
+                        (render-final chat-id msg-id text :reply_markup reply_markup))
                       text)
 
                     (cond
@@ -152,7 +159,7 @@
                         :finish
                         ;; Finalize with full HTML formatting
                         (let [text @acc]
-                          (render-final chat-id msg-id text)
+                          (render-final chat-id msg-id text :reply_markup reply_markup)
                           text)
 
                         ;; Unknown type → ignore
@@ -162,14 +169,15 @@
                       (nil? msg)
                       (let [text @acc]
                         (when (and (seq text) (not= text @last-sent))
-                          (render-final chat-id msg-id text))
+                          (render-final chat-id msg-id text :reply_markup reply_markup))
                         text)))))
               (finally
                 (close! tick-ch))))))
 
       (catch Exception e
         (log/error e :stream-error)
-        (try (tg/send-message chat-id "❌ Произошла ошибка. Попробуйте ещё раз.")
+        (try (tg/send-message chat-id "❌ Произошла ошибка. Попробуйте ещё раз."
+                              :reply_markup reply_markup)
              (catch Exception _))
         nil))))
 
@@ -180,7 +188,10 @@
 (defn send-response
   "Send a complete response (non-streaming convenience).
    Shows typing, then sends formatted HTML.
-   Returns sequence of sent message results."
-  [chat-id response-text]
-  (tg/send-typing chat-id)
-  (tg/send-md chat-id response-text))
+   Options:
+     :reply_markup  — passed through to send-md
+     :reset-button?  — attach '🔄 Новый диалог' keyboard to response"
+  [chat-id response-text & {:keys [reply_markup reset-button?]}]
+  (let [markup (or reply_markup (when reset-button? (tg/reset-keyboard)))]
+    (tg/send-typing chat-id)
+    (tg/send-md chat-id response-text :reply_markup markup)))

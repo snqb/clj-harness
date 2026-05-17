@@ -119,10 +119,35 @@
   [chat-id message-id]
   (call "deleteMessage" {"chat_id" (str chat-id) "message_id" (str message-id)}))
 
+;; ══════════════════════ KEYBOARD ══════════════════════
+
+(defn reset-keyboard
+  "Create ReplyKeyboardMarkup with a single '🔄 Новый диалог' button.
+   Tapping it sends '/reset' as text — the command handler catches it.
+   Pass as :reply_markup to send-message or send-md.
+
+   Options:
+     :label      — button text (default \"🔄 Новый диалог\")
+     :resize?    — resize keyboard to fit (default true)
+     :one-time?  — hide after tap (default true)"
+  [& {:keys [label resize? one-time?]
+      :or {label "🔄 Новый диалог"
+           resize? true
+           one-time? true}}]
+  {"keyboard"       [[{"text" label}]]
+   "resize_keyboard"  (boolean resize?)
+   "one_time_keyboard" (boolean one-time?)})
+
+(defn- hide-keyboard
+  "RemoveReplyKeyboard markup — hides custom keyboard after message."
+  []
+  {"remove_keyboard" true})
+
 (defn send-md
   "Send LLM markdown text — converts to HTML, splits if needed.
+   Options: :reply_markup passed through to send-message.
    Returns sequence of sent Message objects."
-  [chat-id text]
+  [chat-id text & {:keys [reply_markup]}]
   (if (str/blank? text)
     (do (log/warn :empty-response) nil)
     (let [html (fmt/md->html text)
@@ -130,7 +155,7 @@
       (doall
        (map-indexed
         (fn [i chunk]
-          (send-message chat-id chunk :parse-mode "HTML" :preview false))
+          (send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup))
         chunks)))))
 
 ;; ══════════════════════ POLLING ══════════════════════
