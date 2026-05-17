@@ -295,6 +295,14 @@ Active modules:
 Planned:
 - _(none — compaction, MCP, LLM, middleware, sessions, shell all extracted 2026-05-17)_
 
+## Versioning
+
+- **Git tags** for release pinning: `git tag vX.Y.Z`
+- **Dependents use**: `{:git/url "file:///.../clj-harness" :git/tag "v2.0.0"}`
+- **Dev**: swap to `:local/root` for live edits
+- **Upgrade guide**: `UPGRADE-v2.md` — migration checklist for downstream bots
+- **Current**: `v2.0.0` — streaming + reset keyboard + 60K compaction + reply_markup
+
 ## Related
 - Architecture doc: `../tapalakbot-v2/.git/reports/system-architecture-20260515.md`
 - PI skill: `~/.pi/agent/skills/clojure-harness/SKILL.md`
