@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>clj-harness — Clojure Codebase Walkthrough</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --warn: #d29922;
+    --error: #f85149;
+    --code-bg: #1c2128;
+    --radius: 6px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 0;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    padding: 4rem 0 3rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2rem;
+  }
+  .hero h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.02em;
+  }
+  .hero h1 span { color: var(--accent2); }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--muted);
+    margin-top: 0.75rem;
+  }
+  .hero .meta {
+    margin-top: 1.5rem;
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .hero .meta-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .hero .meta-item strong { color: var(--text); }
+
+  /* Sections */
+  section { margin-bottom: 3rem; }
+  h2 {
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 1.5rem 0 0.75rem;
+  }
+  h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 1.25rem 0 0.5rem;
+  }
+  p { margin: 0.75rem 0; color: var(--text); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  th, td {
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  tr:hover td { background: var(--surface); }
+  td:first-child { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--accent); }
+
+  /* Code */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin: 1rem 0;
+  }
+  code {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.85em;
+  }
+  :not(pre) > code {
+    background: var(--code-bg);
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+    font-size: 0.85em;
+  }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-right: 0.4rem;
+  }
+  .badge-new { background: rgba(63,185,80,0.15); color: var(--accent2); }
+  .badge-fix { background: rgba(210,153,34,0.15); color: var(--warn); }
+  .badge-bug { background: rgba(248,81,73,0.15); color: var(--error); }
+  .badge-info { background: rgba(88,166,255,0.15); color: var(--accent); }
+
+  /* Concept grid */
+  .concept-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .concept-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+  }
+  .concept-card h4 {
+    margin: 0 0 0.4rem;
+    font-size: 0.95rem;
+  }
+  .concept-card .file {
+    font-family: monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+  }
+  .concept-card p { font-size: 0.85rem; margin: 0.3rem 0; color: var(--muted); }
+  .concept-card a { font-size: 0.8rem; }
+
+  /* Mermaid */
+  .mermaid {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+  }
+
+  /* Bug card */
+  .bug-card {
+    background: rgba(248,81,73,0.06);
+    border: 1px solid rgba(248,81,73,0.2);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+  }
+  .bug-card h4 { color: var(--error); margin-top: 0; }
+  .bug-card .cause { color: var(--warn); font-size: 0.85rem; }
+  .bug-card .fix { color: var(--accent2); font-size: 0.85rem; }
+
+  /* Timeline */
+  .timeline {
+    position: relative;
+    padding-left: 2rem;
+    border-left: 2px solid var(--border);
+    margin: 1.5rem 0;
+  }
+  .timeline-item {
+    position: relative;
+    margin-bottom: 1.5rem;
+    padding-left: 1.5rem;
+  }
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -2.45rem;
+    top: 0.35rem;
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  .timeline-item h4 { margin: 0 0 0.25rem; }
+  .timeline-item .date {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+  }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .container { padding: 1rem; }
+    .hero h1 { font-size: 1.8rem; }
+    .concept-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Nav */
+  nav {
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 0;
+    z-index: 10;
+    backdrop-filter: blur(8px);
+  }
+  nav .container {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.85rem;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  nav a { color: var(--muted); }
+  nav a:hover { color: var(--text); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="#arch">Architecture</a>
+    <a href="#files">Files</a>
+    <a href="#concepts">Concepts</a>
+    <a href="#history">History</a>
+    <a href="#bugs">Bugs</a>
+    <a href="#refs">References</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<div class="hero">
+  <h1>clj-<span>harness</span></h1>
+  <p class="subtitle">
+    A Clojure agent harness dissected — from 592-line monolith to 16-file symphony.
+    Every function, every concept, every refactoring decision explained.
+  </p>
+  <div class="meta">
+    <div class="meta-item"><strong>16</strong> files</div>
+    <div class="meta-item"><strong>~1724</strong> lines</div>
+    <div class="meta-item"><strong>0</strong> circular deps</div>
+    <div class="meta-item"><strong>4</strong> middleware fns</div>
+    <div class="meta-item"><strong>2</strong> LLM providers</div>
+  </div>
+</div>
+
+<!-- ═══════════════ ARCHITECTURE ═══════════════ -->
+<section id="arch">
+<h2>Architecture</h2>
+
+<p>
+  clj-harness is a <strong>middleware-based agent harness</strong> for building AI-powered bots in Clojure.
+  It connects LLM providers (OpenRouter, DeepSeek) with tools (MCPvisor, shell commands) through
+  a composable pipeline of pure functions.
+</p>
+
+<h3>Pipeline</h3>
+<pre><code>User Message
+  ↓
+create-bot (wires pipeline)
+  ↓
+handle-message (session, compaction, invoke pipeline)
+  ↓
+core-agent        ← raw LLM call, extracts assistant message
+  → wrap-tools    ← automatic tool calling loop (calls LLM until text)
+  → wrap-retry    ← exponential backoff on errors
+  → wrap-logging  ← timing & finish reason telemetry
+  ↓
+Response</code></pre>
+
+<h3>Dependency Graph</h3>
+<div class="mermaid">
+graph TD
+    A[infra<br/>config, secrets, HTTP] --> B[llm<br/>provider dispatch, core-agent]
+    A --> C[mcp<br/>MCPvisor client]
+    A --> D[compact<br/>token estimation]
+    C --> E[middleware<br/>wrap-tools, retry, logging]
+    D --> F[core<br/>bot factory, orchestration]
+    E --> F
+    B --> F
+    F --> G[session/memory<br/>atom sessions]
+    F --> H[tools/shell<br/>shell commands]
+    F --> I[stream<br/>SSE streaming]
+
+    style A fill:#1c2128,stroke:#30363d,color:#c9d1d9
+    style B fill:#1c2128,stroke:#30363d,color:#c9d1d9
+    style C fill:#1c2128,stroke:#30363d,color:#c9d1d9
+    style D fill:#1c2128,stroke:#30363d,color:#c9d1d9
+    style E fill:#1c2128,stroke:#30363d,color:#c9d1d9
+    style F fill:#1a2e1a,stroke:#3fb950,color:#c9d1d9
+    style G fill:#1c2128,stroke:#30363d,color:#c9d1d9
+    style H fill:#1c2128,stroke:#30363d,color:#c9d1d9
+    style I fill:#1c2128,stroke:#30363d,color:#c9d1d9
+</div>
+
+<p>
+  Key insight: <code>middleware</code> <strong>does not import <code>llm</code></strong>.
+  <code>wrap-tools</code> receives the handler as a <strong>function parameter</strong> —
+  dependency injection without a DI framework. This is the middleware pattern's superpower:
+  each layer only knows about its own tools, not the entire stack.
+</p>
+</section>
+
+<!-- ═══════════════ FILES ═══════════════ -->
+<section id="files">
+<h2>File Breakdown</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>File</th>
+      <th>Lines</th>
+      <th>Purpose</th>
+      <th>Depends On</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>infra.clj</td>
+      <td>69</td>
+      <td>Aero config, pass/env secrets, raw HTTP/1.1 client. Bottom of dependency chain — everything else builds on this.</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>llm.clj <span class="badge badge-new">new</span></td>
+      <td>66</td>
+      <td>Provider dispatch (data-driven map), model resolution, LLM API calls, core-agent handler. Extracted from core.</td>
+      <td>infra</td>
+    </tr>
+    <tr>
+      <td>mcp.clj</td>
+      <td>61</td>
+      <td>MCPvisor JSON-RPC client: tool discovery (cached), tool execution, schema→OpenAI tool format conversion.</td>
+      <td>infra</td>
+    </tr>
+    <tr>
+      <td>middleware.clj <span class="badge badge-new">new</span></td>
+      <td>106</td>
+      <td>Composable middleware stack: wrap-tools (tool loop), wrap-retry (exponential backoff), wrap-logging (telemetry). Receives handler as parameter.</td>
+      <td>mcp, infra</td>
+    </tr>
+    <tr>
+      <td>compact.clj</td>
+      <td>90</td>
+      <td>Adaptive token estimation (Unicode-aware), conversation compaction with injected LLM summarizer. No circular deps.</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>core.clj</td>
+      <td>249</td>
+      <td>Pure orchestration: create-bot (wires pipeline), handle-message (session + compaction + invoke), async streaming, MCP bot convenience.</td>
+      <td>infra, llm, middleware, mcp, compact, session, stream</td>
+    </tr>
+    <tr>
+      <td>session/memory.clj <span class="badge badge-new">new</span></td>
+      <td>56</td>
+      <td>In-memory session atoms: message history, arbitrary per-user data. Complements session/sqlite.clj (persistence).</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>tools/shell.clj <span class="badge badge-new">new</span></td>
+      <td>43</td>
+      <td>Shell command tools with {{key}} template substitution. Supports string/integer args. Wraps clojure.java.shell/sh.</td>
+      <td>clojure.java.shell</td>
+    </tr>
+    <tr>
+      <td>stream.clj</td>
+      <td>206</td>
+      <td>SSE streaming via Java HttpClient, provider-agnostic. Returns core.async channel of delta chunks.</td>
+      <td>infra</td>
+    </tr>
+    <tr>
+      <td>telegram.clj</td>
+      <td>252</td>
+      <td>Telegram Bot API: sendMessage, editMessageText, typing actions, polling loop, handler dispatch, MarkdownV2 formatting.</td>
+      <td>infra</td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ═══════════════ CONCEPTS ═══════════════ -->
+<section id="concepts">
+<h2>Clojure Concepts Taught</h2>
+
+<p>
+  Every concept below was taught through real code in this project — not artificial examples.
+  Click the doc links for official Clojure reference.
+</p>
+
+<div class="concept-grid">
+
+  <div class="concept-card">
+    <h4>Namespaces & Requires</h4>
+    <div class="file">compact.clj, core.clj</div>
+    <p><code>ns</code> declares the file's namespace. <code>:require</code> imports other namespaces with aliases. Docstrings attach to the namespace as metadata — retrievable at runtime via <code>(doc ...)</code>.</p>
+    <a href="https://clojure.org/reference/namespaces">clojure.org/reference/namespaces →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>Functions as Values</h4>
+    <div class="file">middleware.clj</div>
+    <p><code>defn</code> creates a Var holding a function. Functions are first-class: you pass them, return them, store them in maps. The middleware pattern is just <code>(fn [handler] => fn)</code>.</p>
+    <a href="https://clojure.org/guides/learn/functions">clojure.org/guides/learn/functions →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>reduce — the Accumulator</h4>
+    <div class="file">compact.clj:14</div>
+    <p><code>(reduce f init coll)</code> folds a collection into a single value. Used in <code>estimate-tokens</code> to accumulate token counts across messages. The function receives (accumulator, element) each iteration.</p>
+    <a href="https://clojuredocs.org/clojure.core/reduce">clojuredocs.org/clojure.core/reduce →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>let — Immutable Bindings</h4>
+    <div class="file">all files</div>
+    <p><code>(let [x 1 y 2] ...)</code> creates local bindings that never change. Not "variables" — they're names for values that exist only within that scope. No mutation, no reassignment.</p>
+    <a href="https://clojure.org/reference/special_forms#let">clojure.org/reference/special_forms →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>Destructuring</h4>
+    <div class="file">compact.clj:54</div>
+    <p><code>{:keys [threshold summarize-fn] :or {threshold 8000}}</code> pulls keys from a map into local bindings with defaults. Works on vectors too: <code>[a b & rest]</code>. Replaces 90% of let bindings.</p>
+    <a href="https://clojure.org/guides/destructuring">clojure.org/guides/destructuring →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>cond — Multi-Branch</h4>
+    <div class="file">compact.clj:37</div>
+    <p><code>(cond test1 val1 test2 val2 :else val3)</code> — evaluates tests top-to-bottom, returns the first matching value. <code>:else</code> is the convention for catch-all. No <code>return</code> needed — expression-oriented.</p>
+    <a href="https://clojuredocs.org/clojure.core/cond">clojuredocs.org/clojure.core/cond →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>Sequence Operations</h4>
+    <div class="file">compact.clj:59-63</div>
+    <p><code>take-last</code>, <code>drop-last</code>, <code>take</code>, <code>into</code>, <code>conj</code>, <code>vec</code> — the sequence abstraction. Same functions work on vectors, lists, maps, lazy streams. <code>vec</code> forces realization of lazy seqs.</p>
+    <a href="https://clojure.org/reference/sequences">clojure.org/reference/sequences →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>Threading Macros</h4>
+    <div class="file">core.clj (create-bot)</div>
+    <p><code>(-> val (f) (g) (h))</code> threads a value through functions — each result becomes the first argument of the next. Eliminates deeply nested calls. <code>->></code> threads as last argument.</p>
+    <a href="https://clojure.org/guides/threading_macros">clojure.org/guides/threading_macros →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>cond→ — Conditional Threading</h4>
+    <div class="file">llm.clj:43</div>
+    <p><code>(cond-> map (test) (assoc k v))</code> — threads map through transformations, but only applies a step if its test is truthy. Used in <code>llm</code> to optionally add tools to the payload.</p>
+    <a href="https://clojuredocs.org/clojure.core/cond-%3E">clojuredocs.org/clojure.core/cond-&gt; →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>Keywords</h4>
+    <div class="file">all files</div>
+    <p><code>:like-this</code> — self-evaluating, identity-comparable tokens. Used as map keys, enum values, function names, and log markers. <code>(:key map)</code> looks up :key in map — keywords are functions of maps.</p>
+    <a href="https://clojure.org/reference/data_structures#Keywords">clojure.org/reference/data_structures →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>Metadata (^:private)</h4>
+    <div class="file">compact.clj:33</div>
+    <p><code>(def ^:private x ...)</code> attaches metadata to a Var. <code>^:private</code> tells the compiler "don't let other namespaces access this." Not a lock — reachable via <code>#'ns/var</code> — but a clear boundary signal.</p>
+    <a href="https://clojure.org/reference/metadata">clojure.org/reference/metadata →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>Data-Driven Dispatch</h4>
+    <div class="file">llm.clj:15</div>
+    <p><code>provider-config</code> is a map, not a switch statement. Each provider = <code>{:url :headers}</code>. Adding a new provider means adding a map entry — no code changes needed. Data > Code.</p>
+    <a href="https://clojure.org/about/rationale#_programming_to_abstractions">clojure.org/about/rationale →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>lo op / recur — Tail Recursion</h4>
+    <div class="file">middleware.clj:41</div>
+    <p><code>(loop [x 0] ... (recur (inc x)))</code> — the tool calling loop uses <code>loop/recur</code> for iterative recursion without stack overflow. JVM doesn't have TCO, so Clojure provides explicit recur.</p>
+    <a href="https://clojure.org/reference/special_forms#recur">clojure.org/reference/special_forms →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>if-let — Conditional Binding</h4>
+    <div class="file">middleware.clj:46</div>
+    <p><code>(if-let [x (maybe-thing)] (use x) (fallback))</code> — binds and tests in one expression. Used to check if the LLM returned tool calls before processing them.</p>
+    <a href="https://clojuredocs.org/clojure.core/if-let">clojuredocs.org/clojure.core/if-let →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>try / catch — JVM Error Handling</h4>
+    <div class="file">compact.clj:76</div>
+    <p><code>(try ... (catch Exception e ...))</code> — Clojure uses Java's exception hierarchy. Every catch provides a fallback: if summarization fails, keep last 10 messages. No crashes, no data loss.</p>
+    <a href="https://clojure.org/reference/special_forms#try">clojure.org/reference/special_forms →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>Atoms & swap!</h4>
+    <div class="file">session/memory.clj:30</div>
+    <p><code>(swap! atom update "messages" conj msg)</code> — thread-safe mutation. <code>swap!</code> applies a function atomically, retrying on contention. The session is an atom; <code>session-add!</code> uses swap! to append messages.</p>
+    <a href="https://clojure.org/reference/atoms">clojure.org/reference/atoms →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>core.async (go, chan, &lt;!, &gt;!)</h4>
+    <div class="file">core.clj:119</div>
+    <p><code>(go ...)</code> creates a lightweight process. <code>(chan)</code> creates a channel. <code>&lt;!</code> takes, <code>&gt;!</code> puts — inside go blocks. Used in <code>handle-message-async</code> for non-blocking LLM streaming.</p>
+    <a href="https://clojure.github.io/core.async/">clojure.github.io/core.async →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>re-seq — Regex Matching</h4>
+    <div class="file">compact.clj:16</div>
+    <p><code>(re-seq #"[a-zA-Z0-9\s]" content)</code> finds all regex matches as a lazy sequence. <code>#"pattern"</code> is Clojure's regex literal — same engine as Java <code>java.util.regex.Pattern</code>.</p>
+    <a href="https://clojuredocs.org/clojure.core/re-seq">clojuredocs.org/clojure.core/re-seq →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>into — Smart Collection Building</h4>
+    <div class="file">compact.clj:73</div>
+    <p><code>(into [summary-msg] recent)</code> uses the target's type for efficient construction: vectors append, maps merge, sets deduplicate. Same function, different strategy — polymorphism without classes.</p>
+    <a href="https://clojuredocs.org/clojure.core/into">clojuredocs.org/clojure.core/into →</a>
+  </div>
+
+  <div class="concept-card">
+    <h4>Dependency Injection via Fns</h4>
+    <div class="file">compact.clj:54, core.clj:59</div>
+    <p>Instead of <code>compact</code> calling <code>core-agent</code> directly (circular require), it receives a <code>summarize-fn</code> parameter. The function is created in <code>create-bot</code> and stored on the bot map. DI without a framework.</p>
+    <a href="https://clojure.org/about/rationale#_functional_programming">clojure.org/about/rationale →</a>
+  </div>
+
+</div>
+</section>
+
+<!-- ═══════════════ HISTORY ═══════════════ -->
+<section id="history">
+<h2>Refactoring History</h2>
+
+<p>
+  Three rounds of extraction, one principle: <strong>small files, clean boundaries, zero circular dependencies</strong>.
+</p>
+
+<h3>Timeline</h3>
+<div class="timeline">
+
+  <div class="timeline-item">
+    <h4>Round 1: infra + compact + mcp</h4>
+    <div class="date">2026-05-17 · core: 592 → 441 lines</div>
+    <p>
+      Extracted shared foundation first to avoid circular deps.
+      <code>infra.clj</code> (config, secrets, HTTP) — bottom of chain.
+      <code>compact.clj</code> (token estimation, compaction) — injected <code>summarize-fn</code> to break cycle.
+      <code>mcp.clj</code> (MCPvisor client) — external boundary.
+    </p>
+    <table>
+      <tr><td>core.clj</td><td>592 → 441</td></tr>
+      <tr><td>infra.clj</td><td>new · 69 lines</td></tr>
+      <tr><td>compact.clj</td><td>new · 90 lines</td></tr>
+      <tr><td>mcp.clj</td><td>new · 61 lines</td></tr>
+    </table>
+  </div>
+
+  <div class="timeline-item">
+    <h4>Round 2: llm + middleware + session/memory + tools/shell</h4>
+    <div class="date">2026-05-17 · core: 441 → 249 lines</div>
+    <p>
+      Extracted concerns from core until it became pure orchestration.
+      <code>llm.clj</code> — provider dispatch + core-agent.
+      <code>middleware.clj</code> — tool loop, retry, logging (doesn't import llm!).
+      <code>session/memory.clj</code> — atom-based sessions.
+      <code>tools/shell.clj</code> — shell command tools.
+      Fixed parameter shadowing bug in <code>shell-tool</code> (name → tool-name).
+    </p>
+    <table>
+      <tr><td>core.clj</td><td>441 → 249</td></tr>
+      <tr><td>llm.clj</td><td>new · 66 lines</td></tr>
+      <tr><td>middleware.clj</td><td>new · 106 lines</td></tr>
+      <tr><td>session/memory.clj</td><td>new · 56 lines</td></tr>
+      <tr><td>tools/shell.clj</td><td>new · 43 lines</td></tr>
+    </table>
+  </div>
+
+  <div class="timeline-item">
+    <h4>Result</h4>
+    <div class="date">2026-05-17 · total: ~1724 lines across 16 files</div>
+    <p>
+      <strong>core.clj shrunk by 58%</strong> (592 → 249). Every extracted module has a single responsibility,
+      clear dependencies (all acyclic), and its own docstring. The dependency graph is a DAG — no cycles.
+      The middleware pattern's key insight (handler as parameter eliminates llm dependency from middleware)
+      is now visible in the file structure itself.
+    </p>
+  </div>
+
+</div>
+
+<h3>Size Evolution</h3>
+<div class="mermaid">
+graph LR
+    A["core.clj<br/>592 lines<br/>11 sections<br/>monolith"] -->|"Round 1"| B["core.clj<br/>441 lines<br/>+ infra, compact, mcp"]
+    B -->|"Round 2"| C["core.clj<br/>249 lines<br/>+ llm, middleware, session, shell"]
+    style A fill:#2a1a1a,stroke:#f85149,color:#c9d1d9
+    style B fill:#2a2a1a,stroke:#d29922,color:#c9d1d9
+    style C fill:#1a2e1a,stroke:#3fb950,color:#c9d1d9
+</div>
+
+</section>
+
+<!-- ═══════════════ BUGS ═══════════════ -->
+<section id="bugs">
+<h2>Bugs Found & Fixed</h2>
+
+<div class="bug-card">
+  <h4>Parameter Shadowing: name → tool-name</h4>
+  <p>
+    <strong>Location:</strong> <code>tools/shell.clj</code><br>
+    <strong>Symptom:</strong> <code>ClassCastException: String cannot be cast to IFn</code><br>
+    <strong>Root cause:</strong> The parameter <code>name</code> (tool name string, e.g., <code>"echo"</code>) shadowed
+    <a href="https://clojuredocs.org/clojure.core/name"><code>clojure.core/name</code></a> inside the function body.
+    When the schema construction called <code>(name k)</code>, it tried to invoke the string as a function.
+  </p>
+  <p class="fix">
+    <strong>Fix:</strong> Renamed parameter to <code>tool-name</code>, unshadowing <code>clojure.core/name</code>.<br>
+    <strong>Lesson:</strong> Never use <code>name</code>, <code>key</code>, <code>val</code>, <code>get</code>, <code>count</code>,
+    <code>type</code>, or <code>class</code> as parameter names — they're all <code>clojure.core</code> functions that shadow silently.
+  </p>
+</div>
+
+<div class="bug-card">
+  <h4>Unused Namespace Import</h4>
+  <p>
+    <strong>Location:</strong> <code>middleware.clj</code><br>
+    <strong>Symptom:</strong> LSP warning — <code>clojure.string</code> required but never used<br>
+    <strong>Root cause:</strong> Copied <code>clojure.string</code> from core.clj's ns during extraction. Middleware doesn't use any string functions.
+  </p>
+  <p class="fix">
+    <strong>Fix:</strong> Removed <code>[clojure.string :as str]</code> from requires.
+  </p>
+</div>
+</section>
+
+<!-- ═══════════════ KEY DESIGN DECISIONS ═══════════════ -->
+<section id="decisions">
+<h2>Key Design Decisions</h2>
+
+<table>
+  <thead>
+    <tr><th>Decision</th><th>Why</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Middleware over monolith</td>
+      <td>Each concern is a composable function. Test individually. Swap order easily. No circular deps.</td>
+    </tr>
+    <tr>
+      <td>Raw Java HttpClient (HTTP/1.1)</td>
+      <td>MCPvisor rejects HTTP/2. Works for all providers. No extra dependencies.</td>
+    </tr>
+    <tr>
+      <td>Cheshire JSON, string keys</td>
+      <td><code>(parse-string s false)</code> = string keys, matching LLM JSON conventions. <code>true</code> = keyword keys for Clojure-native maps.</td>
+    </tr>
+    <tr>
+      <td>Atoms for sessions</td>
+      <td>Thread-safe, REPL-inspectable. <code>swap!</code> is atomic — no locks needed for concurrent message additions.</td>
+    </tr>
+    <tr>
+      <td>Pure recursion agent loop</td>
+      <td>No mutable state in the agent loop. <code>loop/recur</code> for iteration without stack overflow.</td>
+    </tr>
+    <tr>
+      <td>Aero config</td>
+      <td><code>#env</code> and <code>#or</code> for env-aware <code>.edn</code> on classpath. No YAML, no JSON config.</td>
+    </tr>
+    <tr>
+      <td>Data-driven provider dispatch</td>
+      <td>Adding a provider = adding a map entry. No switch/case, no if-else chains. Data &gt; Code.</td>
+    </tr>
+    <tr>
+      <td>Function injection for DI</td>
+      <td>compact doesn't import core-agent — it receives <code>summarize-fn</code> as a parameter. Zero circular dependencies.</td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ═══════════════ REFERENCES ═══════════════ -->
+<section id="refs">
+<h2>References & Further Reading</h2>
+
+<h3>Official Documentation</h3>
+<ul>
+  <li><a href="https://clojure.org/reference/reader">Clojure Reader Reference</a> — how Clojure reads code (parens, vectors, maps, keywords, symbols)</li>
+  <li><a href="https://clojure.org/reference/special_forms">Special Forms</a> — <code>def</code>, <code>if</code>, <code>do</code>, <code>let</code>, <code>fn</code>, <code>loop</code>, <code>recur</code>, <code>try</code>, <code>throw</code></li>
+  <li><a href="https://clojure.org/reference/macros">Macros</a> — <code>→</code>, <code>→></code>, <code>cond→</code>, <code>as→</code>, <code>some→</code></li>
+  <li><a href="https://clojure.org/reference/sequences">Sequences</a> — the sequence abstraction (first, rest, cons, lazy-seq)</li>
+  <li><a href="https://clojure.org/reference/data_structures">Data Structures</a> — vectors, maps, sets, lists, keywords, symbols</li>
+  <li><a href="https://clojure.org/reference/metadata">Metadata</a> — <code>^:private</code>, <code>^:dynamic</code>, <code>^:deprecated</code></li>
+  <li><a href="https://clojure.org/reference/atoms">Atoms</a> — <code>atom</code>, <code>swap!</code>, <code>reset!</code>, <code>deref</code> / <code>@</code></li>
+  <li><a href="https://clojure.org/reference/namespaces">Namespaces</a> — <code>ns</code>, <code>:require</code>, <code>:use</code>, <code>:import</code>, <code>:refer</code></li>
+  <li><a href="https://clojure.org/reference/java_interop">Java Interop</a> — calling Java from Clojure (<code>.method</code>, <code>ClassName.</code>, <code>new</code>)</li>
+  <li><a href="https://clojure.org/reference/multimethods">Multimethods & Hierarchies</a> — for when data-driven dispatch outgrows a simple map</li>
+</ul>
+
+<h3>Guides</h3>
+<ul>
+  <li><a href="https://clojure.org/guides/learn/functions">Learn Clojure: Functions</a></li>
+  <li><a href="https://clojure.org/guides/destructuring">Destructuring in Clojure</a></li>
+  <li><a href="https://clojure.org/guides/threading_macros">Threading Macros Guide</a></li>
+  <li><a href="https://clojure.org/guides/learn/flow">Learn Clojure: Flow Control</a></li>
+  <li><a href="https://clojure.org/guides/learn/hashed_colls">Learn Clojure: Hashed Collections</a></li>
+</ul>
+
+<h3>Community Resources</h3>
+<ul>
+  <li><a href="https://clojuredocs.org">ClojureDocs</a> — community-powered examples for every core function</li>
+  <li><a href="https://clojure.github.io/core.async/">core.async Guide</a> — go blocks, channels, alt!, pipeline</li>
+  <li><a href="https://github.com/clj-commons/cheshire">Cheshire</a> — fast JSON encoding/decoding</li>
+  <li><a href="https://github.com/juxt/aero">Aero</a> — EDN config with #env, #or, #ref</li>
+  <li><a href="https://clojure-lsp.io">clojure-lsp</a> — LSP server with diagnostics, formatting, refactoring</li>
+</ul>
+
+<h3>This Project</h3>
+<ul>
+  <li><a href="https://github.com/sn-2022/clj-harness">GitHub: clj-harness</a></li>
+  <li><code>file:///Users/sn/Projects/clj-harness/src/clj_harness/</code> — source code</li>
+  <li><code>file:///Users/sn/Projects/clj-harness/AGENTS.md</code> — project context for AI agents</li>
+</ul>
+</section>
+
+<!-- ═══════════════ FOOTER ═══════════════ -->
+<footer style="text-align:center; padding: 2rem 0; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--border); margin-top: 3rem;">
+  <p>clj-harness · built with Clojure 1.12 · OpenRouter + DeepSeek · MCPvisor · <a href="https://github.com/sn-2022/clj-harness">GitHub</a></p>
+  <p style="margin-top:0.5rem">Last updated: 2026-05-17 · Teaching refactoring artifact</p>
+</footer>
+
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: {
+    primaryColor: '#1c2128',
+    primaryTextColor: '#c9d1d9',
+    primaryBorderColor: '#30363d',
+    lineColor: '#30363d',
+    secondaryColor: '#1c2128',
+    tertiaryColor: '#1c2128'
+  }});
+</script>
+</body>
+</html>

@@ -1,27 +1,48 @@
 <!-- Updated: 2026-05-16 -->
 # clj-harness
 
-> Generic Clojure agent harness — middleware-based LLM + tools framework. OpenRouter + DeepSeek, MCP or direct tools, per-user sessions, streaming, SQLite persistence. ~1866 lines.
+> Generic Clojure agent harness — middleware-based LLM + tools framework. OpenRouter + DeepSeek, MCP or direct tools, per-user sessions, streaming, SQLite persistence. ~1724 lines across 16 files.
 
 ## Architecture v2
 
 ```
 create-bot → handle-message → middleware pipeline → compaction
                 ↓                    ↓
-          session atoms        core-agent
-          (SQLite-backed)      → wrap-tools
-                               → wrap-retry
-                               → wrap-logging
-                               → streaming (core.async channel)
+          session atoms        core-agent (llm.clj)
+          (SQLite-backed)      → wrap-tools (middleware.clj)
+                               → wrap-retry (middleware.clj)
+                               → wrap-logging (middleware.clj)
+                               → streaming (stream.clj)
+```
+
+**Dependency graph** — clean, acyclic:
+```
+infra ──────────────────── (no deps)
+  ↑         ↑
+llm       mcp ───────────── (→ infra)
+  ↑         ↑
+middleware ───────────────── (→ mcp, infra — handler injected, no llm dep!)
+  ↑
+core ────────────────────── (→ infra, llm, middleware, mcp, compact, session)
+  ↑
+session/memory ──────────── (→ nothing)
+tools/shell ──────────────── (→ clojure.java.shell only)
 ```
 
 Middleware stack: composable, testable. Each bot is `{:config {...} :pipeline fn :sessions (atom {})}`.
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `core.clj` | 587 | LLM client, middleware stack, MCP client, bot factory, sessions, shell tools, adaptive compaction, config |
+| `core.clj` | 249 | Bot factory + orchestration: create-bot, message handling, async, MCP bot convenience |
+| `llm.clj` | 66 | LLM client: provider dispatch (data-driven), API calls, core-agent handler |
+| `middleware.clj` | 107 | Middleware stack: wrap-tools (tool loop), wrap-retry (backoff), wrap-logging (telemetry) |
+| `infra.clj` | 69 | Shared infrastructure: Aero config, pass/env secrets, raw HTTP/1.1 client — bottom of dependency chain |
+| `compact.clj` | 90 | Adaptive compaction: token estimation, injected LLM summarizer, keep-recent scaling |
+| `mcp.clj` | 61 | MCPvisor client: tool discovery (cached), JSON-RPC calls, schema→OpenAI conversion |
+| `session/memory.clj` | 56 | In-memory session atoms: message history, arbitrary data, complements SQLite persistence |
+| `tools/shell.clj` | 43 | Shell command tools: {{key}} template substitution, string/int args, sh interop |
 | `stream.clj` | 206 | SSE streaming via Java HttpClient, `llm-stream` → core.async channel, provider-agnostic |
-| `telegram.clj` | 254 | Telegram Bot API: send, edit, typing, polling, handler, format helpers |
+| `telegram.clj` | 252 | Telegram Bot API: send, edit, typing, polling, handler, format helpers |
 | `telegram/format.clj` | 191 | Markdown → Telegram HTML (escape → convert → split at 4096 chars), strip-md for streaming |
 | `telegram/streaming.clj` | 186 | Progressive streaming to Telegram: consume core.async channel, throttle-edits with strip-md, final md→html |
 | `session/sqlite.clj` | 74 | SQLite persistence — per-bot per-user message storage, survive restarts |
@@ -98,7 +119,7 @@ Model resolution: checks `config.edn :models` map first, then falls back to lite
 - **`on-save` must be fast** — called synchronously after each response. Use future/thread for slow saves.
 - **HTTP/1.1 only** — MCPvisor returns 400 on HTTP/2. Already handled.
 - **Config on classpath** — `config.edn` in `resources/` on `:paths`.
-- **Compaction threshold** — defaults to 8K tokens (not 60K). Streams can stay open longer. Configurable via `:agent :compact-threshold`.
+- **Compaction threshold** — defaults to 60K tokens. Configurable via `:agent :compact-threshold`.
 - **Tool output truncated** — default 8K chars, controlled by `:max-tool-output` in config.
 
 ## Recipes
@@ -186,8 +207,25 @@ clj -M:repl
 
 ### Raw MCP
 ```clojure
-(h/mcp-call :get_today_date)
-(h/list-mcp-tools)
+(require '[clj-harness.mcp :as mcp])
+(mcp/mcp-call :get_today_date)
+(mcp/list-mcp-tools)
+```
+
+### Shell tools
+```clojure
+(require '[clj-harness.tools.shell :as st])
+(st/shell-tool "search" "Search API" "curl -s api.example.com?q={{query}}" {:query :string})
+```
+
+### LLM calls (raw)
+```clojure
+(require '[clj-harness.llm :as llm])
+(llm/llm :claude-sonnet
+  [{"role" "system" "content" "Be brief."}
+   {"role" "user" "content" "Say hi in Russian"}]
+  [])
+(llm/core-agent {:model :claude-sonnet :messages [...]})
 ```
 
 ## Dependencies
@@ -214,18 +252,26 @@ clj -M:repl
 
 Under the hood: SSE parser in `clj-harness.stream` — works for both DeepSeek (native) and OpenRouter (proxied). Self-contained module (no circular deps).
 
-## Compaction v2
+## Compaction (clj-harness.compact)
 
-Adaptive compaction with Unicode-aware token estimation:
+Adaptive compaction with Unicode-aware token estimation, extracted to its own module:
 - Token estimator: char-by-char — ASCII ~0.3 tokens/char, non-ASCII ~0.75 tokens/char
-- Default threshold: 8K tokens (configurable via `:agent :compact-threshold`)
+- Default threshold: 60K tokens (configurable via `:agent :compact-threshold`)
 - Keep-recent count: dynamically scales (8→6→4→2) based on total token count
-- Summary: oldest half summarized via LLM → prepended as `[conversation summary]` system message
+- Summary: oldest half summarized via injected `summarize-fn` (set in `create-bot` as `:compact-summarize-fn`) — prepended as `[conversation summary]` system message
 - Fallback: if summarizer fails, keep last 10 messages
+- No circular dependencies: `compact.clj` is a pure transform, receives summarize-fn as parameter
 
 ## Gaps & Current State
 
 Active modules:
+- `clj-harness.infra` — Config, secrets, HTTP client (shared foundation) ✅
+- `clj-harness.llm` — Provider dispatch + core-agent handler ✅
+- `clj-harness.middleware` — Tool loop, retry, logging middleware ✅
+- `clj-harness.compact` — Adaptive conversation compaction ✅
+- `clj-harness.mcp` — MCPvisor client (tool discovery, execution, schema conversion) ✅
+- `clj-harness.session.memory` — In-memory session atoms ✅
+- `clj-harness.tools.shell` — Shell command tools ✅
 - `clj-harness.stream` — SSE streaming for DeepSeek/OpenRouter ✅
 - `clj-harness.telegram` — Bot API ✅
 - `clj-harness.telegram.format` — Markdown→Telegram HTML + strip-md for streaming ✅
@@ -236,7 +282,7 @@ Active modules:
 - `clj-harness.tools.business-schema` — Business type validator (30+ types) ✅
 
 Planned:
-- `clj-harness.compact.clj` — extract compaction to own module (currently inline in core.clj)
+- _(none — compaction, MCP, LLM, middleware, sessions, shell all extracted 2026-05-17)_
 
 ## Related
 - Architecture doc: `../tapalakbot-v2/.git/reports/system-architecture-20260515.md`

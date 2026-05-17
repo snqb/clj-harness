@@ -311,10 +311,10 @@
   [messages]
   (let [total (estimate-tokens messages)]
     (cond
-      (< total 8000)  8
-      (< total 16000) 6
-      (< total 32000) 4
-      :else           2)))
+      (< total 20000)  8
+      (< total 40000)  6
+      (< total 60000)  4
+      :else            2)))
 
 (defn compact-history
   "Compress conversation when over token threshold. Uses LLM summarization.
@@ -326,7 +326,7 @@
    5. Prepend summary as system message + recent messages
    Returns compacted message vector."
   [bot messages]
-  (let [threshold (or (cfg :agent :compact-threshold) 8000)
+  (let [threshold (or (cfg :agent :compact-threshold) 60000)
         tokens (estimate-tokens messages)]
     (if (< tokens threshold)
       messages
