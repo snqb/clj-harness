@@ -212,6 +212,17 @@ clj -M:repl
 (mcp/list-mcp-tools)
 ```
 
+### Reset conversation (/reset command)
+```clojure
+;; Add to make-handler :commands
+(tg/make-handler
+  {:commands {"/start" handle-start
+              "/reset" (fn [{:keys [chat-id user-id]}]
+                         (h/reset-session! @bot user-id)
+                         (tg/send-message chat-id "✅ Conversation reset."))}
+   ...})
+```
+
 ### Shell tools
 ```clojure
 (require '[clj-harness.tools.shell :as st])

@@ -264,6 +264,17 @@
   [session role content]
   (swap! session update "messages" conj {"role" role "content" content}))
 
+(defn reset-session!
+  "Clear session messages and data for user-id in bot's session store.
+   Returns true.
+   Usage: (reset-session! bot \"user-123\")"
+  [bot user-id]
+  (when-let [sessions (:sessions bot)]
+    (if-let [s (get @sessions user-id)]
+      (swap! s assoc "messages" [] "data" {})
+      (swap! sessions assoc user-id (atom {"messages" [] "summary" nil "data" {}}))))
+  true)
+
 (defn session-messages
   "Get messages from session, prepending summary if present."
   [session]
