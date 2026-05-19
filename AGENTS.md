@@ -1,7 +1,7 @@
-<!-- Updated: 2026-05-16 -->
+<!-- Updated: 2026-05-19 -->
 # clj-harness
 
-> Generic Clojure agent harness — middleware-based LLM + tools framework. OpenRouter + DeepSeek, MCP or direct tools, per-user sessions, streaming, SQLite persistence. ~1724 lines across 16 files.
+> Generic Clojure agent harness — middleware-based LLM + tools framework. OpenRouter + DeepSeek, MCP or direct tools, per-user sessions, streaming, SQLite persistence. ~2154 lines across 15 files.
 
 ## Architecture v2
 
@@ -33,22 +33,21 @@ Middleware stack: composable, testable. Each bot is `{:config {...} :pipeline fn
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `core.clj` | 249 | Bot factory + orchestration: create-bot, message handling, async, MCP bot convenience |
+| `core.clj` | 290 | Orchestration only: create-bot, message handling, async, MCP bot convenience; delegates to extracted modules |
 | `llm.clj` | 66 | LLM client: provider dispatch (data-driven), API calls, core-agent handler |
-| `middleware.clj` | 107 | Middleware stack: wrap-tools (tool loop), wrap-retry (backoff), wrap-logging (telemetry) |
+| `middleware.clj` | 114 | Middleware stack: wrap-tools (tool loop), wrap-retry (backoff), wrap-logging (telemetry), schema conversion |
 | `infra.clj` | 69 | Shared infrastructure: Aero config, pass/env secrets, raw HTTP/1.1 client — bottom of dependency chain |
 | `compact.clj` | 90 | Adaptive compaction: token estimation, injected LLM summarizer, keep-recent scaling |
 | `mcp.clj` | 61 | MCPvisor client: tool discovery (cached), JSON-RPC calls, schema→OpenAI conversion |
 | `session/memory.clj` | 56 | In-memory session atoms: message history, arbitrary data, complements SQLite persistence |
 | `tools/shell.clj` | 43 | Shell command tools: {{key}} template substitution, string/int args, sh interop |
-| `stream.clj` | 206 | SSE streaming via Java HttpClient, `llm-stream` → core.async channel, provider-agnostic |
-| `telegram.clj` | 252 | Telegram Bot API: send, edit, typing, polling, handler, format helpers |
-| `telegram/format.clj` | 191 | Markdown → Telegram HTML (escape → convert → split at 4096 chars), strip-md for streaming |
-| `telegram/streaming.clj` | 186 | Progressive streaming to Telegram: consume core.async channel, throttle-edits with strip-md, final md→html |
+| `stream.clj` | 251 | SSE streaming via Java HttpClient, `llm-stream` → core.async channel, provider-agnostic |
+| `telegram.clj` | 335 | Telegram Bot API: send, edit, typing, polling, handler, format helpers |
+| `telegram/format.clj` | 245 | Markdown → Telegram HTML; block-buffered plain previews for streaming; split at 4096 chars |
+| `telegram/streaming.clj` | 196 | Progressive streaming to Telegram: block-buffered previews, final md→html, stopped ticker |
 | `session/sqlite.clj` | 74 | SQLite persistence — per-bot per-user message storage, survive restarts |
-| `skills.clj` | 132 | Design system loader: loads 99+ design systems from EDN resources, merges into agent system prompt |
-| `tools/gsheets.clj` | 168 | Google Sheets tool: service account auth, append booking rows (date, time, name, phone, service, status) |
-| `tools/business_schema.clj` | 65 | Business schema validator: 30+ business types, injects required fields checklist into agent context |
+| `skills.clj` | 133 | Design system loader: loads 99+ design systems from EDN resources, merges into agent system prompt |
+| `tools/gsheets.clj` | 131 | Google Sheets booking tool via gcloud ADC, append booking rows (date, time, name, phone, service, status) |
 
 ## Two Tool Modes
 
@@ -87,7 +86,7 @@ Pipeline: `core-agent → wrap-tools → wrap-retry → wrap-logging`
 | `:name` | — | Bot name |
 | `:prompt` | — | System prompt |
 | `:tools` | [] | Tool definitions |
-| `:model` | :claude-sonnet | LLM model |
+| `:model` | :claude-sonnet (`:deepseek-v4-pro` when `:provider :deepseek`) | LLM model |
 | `:provider` | :openrouter | :openrouter or :deepseek |
 | `:max-turns` | 10 | Max tool-calling iterations |
 | `:max-retries` | 2 | Retry count on failures |
@@ -99,7 +98,7 @@ Pipeline: `core-agent → wrap-tools → wrap-retry → wrap-logging`
 
 Two providers supported (both read keys from pass store):
 - **OpenRouter**: `pass openrouter/token` or `OPENROUTER_API_KEY` env
-- **DeepSeek**: `pass deepseek-api/token` or `DEEPSEEK_API_KEY` env
+- **DeepSeek**: `pass deepseek-api/token` or `DEEPSEEK_API_KEY` env; use `:provider :deepseek` with `:model :deepseek-v4-pro` for DeepSeek-V4-Pro.
 
 Model resolution: checks `config.edn :models` map first, then falls back to literal string.
 
@@ -290,7 +289,6 @@ Active modules:
 - `clj-harness.session.sqlite` — SQLite persistence ✅
 - `clj-harness.skills` — Design system loader (99+ systems) ✅
 - `clj-harness.tools.gsheets` — Google Sheets booking tool ✅
-- `clj-harness.tools.business-schema` — Business type validator (30+ types) ✅
 
 Planned:
 - _(none — compaction, MCP, LLM, middleware, sessions, shell all extracted 2026-05-17)_

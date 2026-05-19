@@ -23,7 +23,7 @@
    :deepseek   {:url "https://api.deepseek.com/chat/completions"
                 :headers (fn [key] {"Authorization" (str "Bearer " key)})}})
 
-(defn- resolve-model
+(defn resolve-model
   "Resolve model key to actual model name.
    Checks config.edn :models map first, falls back to literal name."
   [model-key]
@@ -35,7 +35,7 @@
   "Call LLM via configured provider. Returns raw API response JSON.
 
    (llm :claude-sonnet [{:role \"user\" :content \"Hi\"}] [] :provider :openrouter)
-   (llm :deepseek-chat [{...}] [{:name \"search\" ...}] :provider :deepseek :max-tokens 2048)"
+   (llm :deepseek-v4-pro [{...}] [{:name \"search\" ...}] :provider :deepseek :max-tokens 2048)"
   [model-key messages tools & {:keys [provider max-tokens]
                                :or {provider :openrouter max-tokens 4096}}]
   (let [pc (get provider-config provider)

@@ -15,6 +15,16 @@
 
 ;; ══════════════════════ TOOL LOOP ══════════════════════
 
+(defn tool->openai-schema
+  "Convert a harness tool definition to an OpenAI function-calling schema."
+  [t]
+  (if (:mcp t)
+    (mcp/mcp-tool->openai-schema t)
+    {"type" "function"
+     "function" {"name" (:name t)
+                 "description" (:description t "")
+                 "parameters" (or (:schema t) {"type" "object" "properties" {}})}}))
+
 (defn wrap-tools
   "Middleware: automatic tool calling loop.
 
@@ -24,50 +34,48 @@
 
    Feeds tool results back to the handler (LLM) until it produces a text response
    or hits max-turns. Returns {:content ... :tool-calls nil} when done."
-  [handler tools]
-  (let [tool-map (into {} (map (fn [t] [(get t "name" (:name t)) t]) tools))
-        tool-schemas (mapv (fn [t]
-                             (if (:mcp t)
-                               (mcp/mcp-tool->openai-schema t)
-                               {"type" "function"
-                                "function" {"name" (:name t)
-                                            "description" (:description t "")
-                                            "parameters" (or (:schema t) {"type" "object" "properties" {}})}}))
-                           tools)]
-    (fn [{:keys [messages max-turns] :as ctx}]
-      (let [mt (or max-turns (cfg :agent :max-turns) 10)]
-        (loop [msgs messages turn 0]
-          (if (>= turn mt)
-            {:content (str "⚠️ Reached max turns (" mt "). Try a more specific query.")
-             :tool-calls nil}
-            (let [resp (handler (assoc ctx :messages msgs :tools tool-schemas))]
-              (if-let [calls (:tool-calls resp)]
-                (let [tool-results
-                      (mapv (fn [tc]
-                              (let [tn (get-in tc ["function" "name"])
-                                    args-str (get-in tc ["function" "arguments"])
-                                    args (try (if (string? args-str)
-                                                (json/parse-string args-str false)
-                                                args-str)
-                                              (catch Exception _ {}))
-                                    t (get tool-map tn)
-                                    result (if t
-                                             (try ((:execute t) args)
-                                                  (catch Exception e
-                                                    (str "Tool error: " (.getMessage e))))
-                                             (str "Unknown tool: " tn))
-                                    max-out (or (cfg :agent :max-tool-output) 8000)
-                                    truncated (if (and (string? result) (> (count result) max-out))
-                                                (str (subs result 0 max-out) "\n...(truncated)")
-                                                result)]
-                                {"role" "tool"
-                                 "tool_call_id" (get tc "id")
-                                 "content" (str truncated)}))
-                            calls)]
-                  (recur (into (conj msgs {"role" "assistant" "content" (:content resp) "tool_calls" calls})
-                               tool-results)
-                         (inc turn)))
-                resp))))))))
+  ([handler tools] (wrap-tools handler tools nil))
+  ([handler tools tool-post-process]
+   (let [tool-map (into {} (map (fn [t] [(get t "name" (:name t)) t]) tools))
+         tool-schemas (mapv tool->openai-schema tools)]
+     (fn [{:keys [messages max-turns] :as ctx}]
+       (let [mt (or max-turns (cfg :agent :max-turns) 10)]
+         (loop [msgs messages turn 0]
+           (if (>= turn mt)
+             {:content (str "⚠️ Reached max turns (" mt "). Try a more specific query.")
+              :tool-calls nil}
+             (let [resp (handler (assoc ctx :messages msgs :tools tool-schemas))]
+               (if-let [calls (:tool-calls resp)]
+                 (let [tool-results
+                       (mapv (fn [tc]
+                               (let [tn (get-in tc ["function" "name"])
+                                     args-str (get-in tc ["function" "arguments"])
+                                     args (try (if (string? args-str)
+                                                 (json/parse-string args-str false)
+                                                 args-str)
+                                               (catch Exception _ {}))
+                                     t (get tool-map tn)
+                                     result (if t
+                                              (try ((:execute t) args)
+                                                   (catch Exception e
+                                                     (str "Tool error: " (.getMessage e))))
+                                              (str "Unknown tool: " tn))
+                                     enriched (if tool-post-process
+                                                (try (tool-post-process tn result)
+                                                     (catch Exception _ result))
+                                                result)
+                                     max-out (or (cfg :agent :max-tool-output) 8000)
+                                     truncated (if (and (string? enriched) (> (count enriched) max-out))
+                                                 (str (subs enriched 0 max-out) "\n...(truncated)")
+                                                 enriched)]
+                                 {"role" "tool"
+                                  "tool_call_id" (get tc "id")
+                                  "content" (str truncated)}))
+                             calls)]
+                   (recur (into (conj msgs {"role" "assistant" "content" (:content resp) "tool_calls" calls})
+                                tool-results)
+                          (inc turn)))
+                 resp)))))))))
 
 ;; ══════════════════════ RETRY ══════════════════════
 

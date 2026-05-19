@@ -8,8 +8,9 @@
 
 ;; ── Skill Loading ──
 
-(defn- read-edn [res]
+(defn- read-edn
   "Read EDN forms from an io/resource URL. Returns vector of forms."
+  [res]
   (try
     (with-open [r (-> res io/reader clojure.lang.LineNumberingPushbackReader.)]
       (loop [acc []]
@@ -21,13 +22,13 @@
       (println (str "[skills] Error reading " res ": " (.getMessage e)))
       [])))
 
-(defn- skill-file [id]
-  (str "skills/by-kind/design-system/all.edn"))
+(def ^:private design-systems-file
+  "skills/by-kind/design-system/all.edn")
 
 (defn load-all-design-systems
   "Load all 99 design systems from bundled EDN."
   []
-  (if-let [path (io/resource (skill-file :airbnb))]
+  (if-let [path (io/resource design-systems-file)]
     (read-edn path)
     (do (println "[skills] WARNING: design-systems.edn not found on classpath")
         [])))
@@ -64,7 +65,7 @@
 
 (defn design-system-prompt
   "Convert a design system skill map into a prompt fragment for the agent."
-  [{:keys [id description category prompt] :as skill}]
+  [{:keys [id description category prompt]}]
   (str "## Design System: " (name id) "\n"
        "> " (or description "") "\n"
        "> Category: " (or category "") "\n\n"
@@ -97,11 +98,11 @@
       ;; Truncate: keep base prompt intact, trim skill fragments
       (let [budget (- max-chars (count base-prompt) 100)
             truncated (if (< budget (count header))
-                       ""
-                       (let [avail (- budget (count header))]
-                         (if (< avail (count body))
-                           (str header (subs body 0 avail) "\n\n[... truncated ...]")
-                           (str header body))))]
+                        ""
+                        (let [avail (- budget (count header))]
+                          (if (< avail (count body))
+                            (str header (subs body 0 avail) "\n\n[... truncated ...]")
+                            (str header body))))]
         (str truncated "\n\n;; ── BASE PROMPT ──\n\n" base-prompt)))))
 
 ;; ── Convenience ──
@@ -111,8 +112,8 @@
   ([] (list-available nil))
   ([kind]
    (let [all (if kind
-              (load-by-kind kind)
-              (into [] (concat (load-all-design-systems) (load-all-skills))))]
+               (load-by-kind kind)
+               (into [] (concat (load-all-design-systems) (load-all-skills))))]
      (mapv (fn [s] {:id (:id s) :kind (:kind s) :category (:category s) :desc (:description s)}) all))))
 
 ;; ── Cache (for performance) ──

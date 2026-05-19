@@ -9,11 +9,13 @@
     {:type :status :text \"🔍 Ищу...\"}  — status update, edits placeholder immediately
     {:type :delta  :text \"токен\"}     — text chunk, accumulated + throttle-edited
     {:type :finish :reason \"stop\"}    — final edit with md→html + split
+    {:delta \"токен\"} / {:done :closed} — also accepted from handle-message-async
     channel closes                     — equivalent to :done
 
   Throttle: edits fire at most every 800ms (status messages are immediate).
-  Mid-stream previews use strip-md (plain text, no HTML parse errors
-  from half-formed markdown). Final edit uses full md→html formatting.
+  Mid-stream previews are block-buffered plain text: unfinished trailing
+  markdown stays hidden until a paragraph, line/list item, or sentence
+  completes. Final edit uses full md→html formatting.
 
   Usage:
     (require '[clj-harness.telegram.streaming :as ts]
@@ -39,17 +41,32 @@
 ;; ══════════════════════ THROTTLE TICKER ══════════════════════
 
 (defn- ticker-chan
-  "Create a channel that receives :tick every interval-ms.
+  "Create a channel that receives :tick every interval-ms until stop-ch closes.
    Uses offer! to avoid backpressure — drops ticks if consumer is slow."
-  [interval-ms]
+  [interval-ms stop-ch]
   (let [tick-ch (chan 1)]
     (go (loop []
-          (<! (timeout interval-ms))
-          (offer! tick-ch :tick)
-          (recur)))
+          (let [[_ port] (alts! [(timeout interval-ms) stop-ch])]
+            (when-not (= port stop-ch)
+              (offer! tick-ch :tick)
+              (recur)))))
     tick-ch))
 
 ;; ══════════════════════ HELPERS ══════════════════════
+
+(defn- msg-type
+  "Normalize stream message shapes from both telegram.streaming and core async."
+  [msg]
+  (or (:type msg)
+      (cond
+        (:delta msg) :delta
+        (:finish msg) :finish
+        (:done msg) :finish)))
+
+(defn- msg-text
+  "Extract text from either {:type :delta :text ...} or {:delta ...}."
+  [msg]
+  (or (:text msg) (:delta msg) ""))
 
 (defn- render-final
   "Render final accumulated text: md→html → split → edit first + send rest.
@@ -89,98 +106,80 @@
   (let [reply_markup (when reset-button? (tg/reset-keyboard))]
     (go
       (try
-        ;; Phase 1: typing + placeholder
         (tg/send-typing chat-id)
         (let [placeholder-msg (tg/send-message chat-id placeholder
                                                :parse-mode parse-mode
                                                :preview false)
               msg-id (some-> placeholder-msg (get "result") (get "message_id"))]
-          (if (not msg-id)
-            ;; Fallback: no message to edit — send each chunk as separate message
+          (if-not msg-id
+            ;; Fallback: no message to edit — accumulate, then send final Markdown.
             (loop [acc ""]
               (if-let [msg (<! ch)]
-                (case (:type msg)
-                  :delta (recur (str acc (:text msg)))
-                  :finish (do (tg/send-md chat-id (str acc)
-                                          :reply_markup reply_markup)
-                              (str acc))
+                (case (msg-type msg)
+                  :delta (recur (str acc (msg-text msg)))
+                  :finish (do (tg/send-md chat-id acc :reply_markup reply_markup)
+                              acc)
                   ;; :status, unknown — ignore
                   (recur acc))
-                ;; Channel closed
                 (do
                   (when (seq acc)
                     (tg/send-md chat-id acc :reply_markup reply_markup))
-                  acc))))
+                  acc)))
 
-          ;; Phase 2: streaming with progressive edits
-          (let [tick-ch (ticker-chan throttle-ms)
-                acc (volatile! "")
-                last-sent (volatile! "")]
-
-            (try
-              (loop []
-                (let [[msg ch] (alts! [ch tick-ch])]
-                  ;; nil msg, nil ch → both closed
-                  (if (and (nil? msg) (nil? ch))
-                    ;; Both channels closed → finalize
-                    (let [text @acc]
-                      (when (and (seq text) (not= text @last-sent))
-                        (render-final chat-id msg-id text :reply_markup reply_markup))
-                      text)
-
+            ;; Normal path: edit placeholder with block-buffered previews.
+            (let [stop-ch (chan)
+                  tick-ch (ticker-chan throttle-ms stop-ch)
+                  acc (volatile! "")
+                  last-preview (volatile! "")]
+              (try
+                (loop []
+                  (let [[msg port] (alts! [ch tick-ch])]
                     (cond
-                      ;; Tick: flush accumulated if changed
-                      (= msg :tick)
-                      (let [text @acc]
-                        (when (not= text @last-sent)
-                          (tg/edit-message chat-id msg-id (fmt/strip-md text)
+                      (= port tick-ch)
+                      (let [preview (fmt/streaming-preview @acc)]
+                        (when (and (seq preview) (not= preview @last-preview))
+                          (tg/edit-message chat-id msg-id preview
                                            :parse-mode parse-mode :preview false)
-                          (vreset! last-sent text))
+                          (vreset! last-preview preview))
                         (recur))
 
-                      ;; Channel message
-                      (:type msg)
-                      (case (:type msg)
+                      (nil? msg)
+                      (let [text @acc]
+                        (when (seq text)
+                          (render-final chat-id msg-id text :reply_markup reply_markup))
+                        text)
+
+                      :else
+                      (case (msg-type msg)
                         :status
-                        ;; Status update: edit immediately (no throttle)
-                        (let [text (:text msg)]
-                          (tg/edit-message chat-id msg-id (fmt/strip-md text)
+                        (let [text (fmt/strip-md (msg-text msg))]
+                          (tg/edit-message chat-id msg-id text
                                            :parse-mode parse-mode :preview false)
-                          (vreset! last-sent text)
+                          (vreset! last-preview text)
                           (vreset! acc "")
                           (recur))
 
                         :delta
-                        ;; Accumulate text, don't edit (ticker handles flushing)
                         (do
-                          (vreset! acc (str @acc (:text msg)))
+                          (vreset! acc (str @acc (msg-text msg)))
                           (recur))
 
                         :finish
-                        ;; Finalize with full HTML formatting
                         (let [text @acc]
                           (render-final chat-id msg-id text :reply_markup reply_markup)
                           text)
 
                         ;; Unknown type → ignore
-                        (recur))
-
-                      ;; Tick channel closed → finalize
-                      (nil? msg)
-                      (let [text @acc]
-                        (when (and (seq text) (not= text @last-sent))
-                          (render-final chat-id msg-id text :reply_markup reply_markup))
-                        text)))))
-              (finally
-                (close! tick-ch))))))
-
-      (catch Exception e
-        (log/error e :stream-error)
-        (try (tg/send-message chat-id "❌ Произошла ошибка. Попробуйте ещё раз."
-                              :reply_markup reply_markup)
-             (catch Exception _))
-        nil))))
-
+                        (recur)))))
+                (finally
+                  (close! stop-ch)
+                  (close! tick-ch))))))
+        (catch Exception e
+          (log/error e :stream-error)
+          (try (tg/send-message chat-id "❌ Произошла ошибка. Попробуйте ещё раз."
+                                :reply_markup reply_markup)
+               (catch Exception _))
+          nil)))))
 ;; ══════════════════════ CONVENIENCE ══════════════════════
 
 ;; ── Non-streaming (still useful as a one-shot convenience) ──

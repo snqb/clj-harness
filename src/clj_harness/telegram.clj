@@ -15,7 +15,7 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.tools.logging :as log])
-  (:import [java.net URI URLEncoder]
+  (:import [java.net URI]
            [java.net.http HttpClient HttpClient$Version HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers]
            [java.time Duration]))
 
@@ -82,14 +82,16 @@
      :parse-mode  — \"HTML\" (default), \"Markdown\", \"MarkdownV2\", or nil (plain)
      :preview     — link preview: true (default) or false
      :reply-to    — message_id to reply to
+     :reply_markup — ReplyKeyboardMarkup, InlineKeyboardMarkup, or remove map
 
    Returns Telegram Message object or nil on failure."
-  [chat-id text & {:keys [parse-mode preview reply-to]
+  [chat-id text & {:keys [parse-mode preview reply-to reply_markup]
                    :or {parse-mode "HTML" preview true}}]
   (let [body (cond-> {"chat_id" (str chat-id) "text" text}
                parse-mode (assoc "parse_mode" parse-mode)
                (false? preview) (assoc "disable_web_page_preview" true)
-               reply-to (assoc "reply_to_message_id" (str reply-to)))
+               reply-to (assoc "reply_to_message_id" (str reply-to))
+               reply_markup (assoc "reply_markup" reply_markup))
         result (call "sendMessage" body)]
     ;; Fallback: if HTML/Markdown fails, retry as plain text
     (when (and (nil? result) parse-mode)
@@ -99,14 +101,15 @@
 
 (defn edit-message
   "Edit an existing message.
-   Options: :parse-mode (\"HTML\" default), :preview (true default)"
-  [chat-id message-id text & {:keys [parse-mode preview]
+   Options: :parse-mode (\"HTML\" default), :preview (true default), :reply_markup"
+  [chat-id message-id text & {:keys [parse-mode preview reply_markup]
                               :or {parse-mode "HTML" preview true}}]
   (let [body (cond-> {"chat_id" (str chat-id)
                       "message_id" (str message-id)
                       "text" text}
                parse-mode (assoc "parse_mode" parse-mode)
-               (false? preview) (assoc "disable_web_page_preview" true))]
+               (false? preview) (assoc "disable_web_page_preview" true)
+               reply_markup (assoc "reply_markup" reply_markup))]
     (call "editMessageText" body)))
 
 (defn send-typing
@@ -138,10 +141,52 @@
    "resize_keyboard"  (boolean resize?)
    "one_time_keyboard" (boolean one-time?)})
 
-(defn- hide-keyboard
-  "RemoveReplyKeyboard markup — hides custom keyboard after message."
-  []
-  {"remove_keyboard" true})
+(defn location-keyboard
+  "Keyboard with a single '📍 Отправить геолокацию' button that requests user location.
+   Returns ReplyKeyboardMarkup for send-message :reply_markup."
+  [& {:keys [label resize?]
+      :or {label "📍 Отправить геолокацию"
+           resize? true}}]
+  {"keyboard"       [[{"text" label "request_location" true}]]
+   "resize_keyboard"  (boolean resize?)})
+
+(defn inline-button
+  "Create an inline keyboard button map.
+   (inline-button \"📞 Call\" \"call_venue_1\")     ;; callback version
+   (inline-button \"📞 Call\" {:url \"tel:...\"}) ;; URL version"
+  [text opts]
+  (if (map? opts)
+    (cond-> {"text" text}
+      (:url opts) (assoc "url" (:url opts))
+      (:callback_data opts) (assoc "callback_data" (:callback_data opts)))
+    ;; String shorthand → callback_data
+    {"text" text "callback_data" opts}))
+
+(defn inline-keyboard
+  "Build InlineKeyboardMarkup from rows of buttons.
+   Each button is [label {:keys [url callback_data]}] or [label callback-data].
+   Example:
+   (inline-keyboard [[\"📞 Позвонить\" {:url \"tel:+996...\"}]
+                     [\"🗺 2GIS\" {:url \"https://2gis.kg/...\"}]])"
+  [& rows]
+  {"inline_keyboard"
+   (mapv (fn [row]
+           (mapv (fn [btn]
+                   (let [[label opts] (if (string? (second btn))
+                                        [(first btn) {:callback_data (second btn)}]
+                                        [(first btn) (second btn)])]
+                     (inline-button label opts)))
+                 row))
+         rows)})
+
+(defn edit-reply-markup
+  "Edit only the reply markup of a message — useful for adding inline buttons
+   after streaming completes."
+  [chat-id message-id markup]
+  (call "editMessageReplyMarkup"
+        {"chat_id" chat-id
+         "message_id" message-id
+         "reply_markup" (json/generate-string markup)}))
 
 (defn send-md
   "Send LLM markdown text — converts to HTML, splits if needed.
@@ -153,10 +198,9 @@
     (let [html (fmt/md->html text)
           chunks (fmt/split-message html)]
       (doall
-       (map-indexed
-        (fn [i chunk]
-          (send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup))
-        chunks)))))
+       (map (fn [chunk]
+              (send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup))
+            chunks)))))
 
 ;; ══════════════════════ POLLING ══════════════════════
 
@@ -173,16 +217,23 @@
     (call "getUpdates" body :timeout-ms 70000)))
 
 (defn- parse-update
-  "Extract chat-id, user-id, first-name, text from update."
+  "Extract chat-id, user-id, first-name, text, location from update."
   [update]
-  (when-let [msg (get update "message")]
+  (when-let [msg (or (get update "message") (get update "edited_message"))]
     (let [chat (get msg "chat")
-          user (get msg "from")]
-      {:chat-id    (get chat "id")
-       :user-id    (get user "id")
-       :first-name (get user "first_name" "друг")
-       :text       (get msg "text")
-       :message-id (get msg "message_id")})))
+          user (get msg "from")
+          loc (get msg "location")]
+      (when loc
+        (log/info :parse-update-location :has-location true :lat (get loc "latitude") :lon (get loc "longitude")))
+      (cond->
+       {:chat-id    (get chat "id")
+        :user-id    (get user "id")
+        :first-name (get user "first_name" "друг")
+        :text       (get msg "text")
+        :message-id (get msg "message_id")}
+        loc
+        (assoc :location {:lat (get loc "latitude")
+                          :lon (get loc "longitude")})))))
 
 (defn poll-loop
   "Start polling loop. Calls handler-fn for each message.
@@ -217,8 +268,15 @@
                   {:keys [chat-id user-id first-name text]}
      :fast-path — map of {\"привет\" response-text} for no-LLM responses
                   (response-text can be a string or HTML-formatted string)
-     :agent-fn  — (fn [user-id text]) → response-text for all other messages
+     :agent-fn  — (fn [user-id text]) → response-text for all other messages.
+                  Or with streaming: (fn [user-id text {:keys [stream-cb]}]) → string-or-nil
+     :on-location — (fn [chat-id user-id lat lon]) called when user shares location
      :on-error  — (fn [chat-id e]) called on handler exceptions
+     :streaming? — enable progressive message editing via stream-cb (default false)
+     :reply-markup — Telegram keyboard map (ReplyKeyboardMarkup or InlineKeyboardMarkup)
+                     to attach to placeholder and final message. Or fn: (fn [chat-id]) → keyboard.
+     :post-stream — (fn [chat-id user-id msg-id final-text]) called after streaming completes.
+                    Use for adding inline buttons or follow-up messages.
 
    Returns a handler fn suitable for poll-loop.
 
@@ -230,40 +288,97 @@
         :agent-fn (fn [uid text] (agent/ask uid text))}))
 
    (tg/poll-loop handler)"
-  [{:keys [commands fast-path agent-fn on-error]}]
-  (fn [{:keys [chat-id user-id first-name text] :as msg}]
-    (try
-      (let [text (str/trim text)]
-        (cond
-          (str/blank? text)
-          nil
+  [{:keys [commands fast-path agent-fn on-error on-location streaming?
+           reply-markup post-stream]
+    :or {streaming? false}}]
+  (let [call-count (atom 0)]
+    (fn [{:keys [chat-id user-id first-name text location] :as msg}]
+      (let [call-n (swap! call-count inc)
+            text (str/trim (or text ""))]
+        (log/info :handler-called :count call-n :chat-id chat-id :user first-name :text (subs text 0 (min 60 (count text))) :has-location (boolean location))
+        (try
+          (cond
+            ;; Location shared
+            location
+            (when on-location
+              (let [lat (:lat location)
+                    lon (:lon location)]
+                (log/info :location-received :chat-id chat-id :lat lat :lon lon)
+                (on-location chat-id user-id lat lon)))
 
-          ;; Commands
-          (str/starts-with? text "/")
-          (let [[cmd _] (str/split text #"\s+" 2)
-                handler (get commands cmd)]
-            (if handler
-              (let [resp (handler msg)]
-                (when resp (send-message chat-id resp)))
-              (send-message chat-id "Неизвестная команда. Напиши /help.")))
+            (str/blank? text)
+            nil
 
-          ;; Fast-path words
-          (get fast-path (str/lower-case text))
-          (send-message chat-id (get fast-path (str/lower-case text)))
+            ;; Commands
+            (str/starts-with? text "/")
+            (let [[cmd _] (str/split text #"\s+" 2)
+                  handler (get commands cmd)]
+              (if handler
+                (let [resp (handler msg)]
+                  (when resp (send-message chat-id resp)))
+                (send-message chat-id "Неизвестная команда. Напиши /help.")))
 
-          ;; Agent
-          agent-fn
-          (let [resp (agent-fn user-id text)]
-            (when resp (send-md chat-id resp)))
+            ;; Fast-path words
+            (get fast-path (str/lower-case text))
+            (send-message chat-id (get fast-path (str/lower-case text)))
 
-          :else
-          (log/warn :no-handler :text text)))
-      (catch Exception e
-        (log/error e :handler-error)
-        (when on-error (on-error chat-id e))
-        (try (send-message chat-id "❌ Произошла ошибка." :parse-mode nil)
-             (catch Exception _))
-        nil))))
+            ;; Agent
+            agent-fn
+            (if streaming?
+              ;; Streaming mode: placeholder → block-buffered plain previews → final HTML
+              (let [txt (volatile! "")
+                    msg-id (volatile! nil)
+                    last-preview (volatile! "")
+                    stream-cb (fn [delta]
+                                (vswap! txt str delta)
+                                (when-let [mid @msg-id]
+                                  (try
+                                    (let [preview (fmt/streaming-preview @txt)]
+                                      (when (and (seq preview) (not= preview @last-preview))
+                                        (edit-message chat-id mid preview
+                                                      :parse-mode nil :preview false)
+                                        (vreset! last-preview preview)))
+                                    (catch Exception e
+                                      (log/warn e :stream-edit-fail :msg-id mid :text-len (count @txt))))))
+                    placeholder (send-message chat-id "⏳ Думаю…"
+                                              :parse-mode nil
+                                              :reply_markup (if (fn? reply-markup)
+                                                              (reply-markup chat-id user-id)
+                                                              reply-markup))
+                    mid-val (get-in placeholder ["result" "message_id"])]
+                (log/info :stream-placeholder-sent :msg-id mid-val)
+                (vreset! msg-id mid-val)
+                (let [result (agent-fn user-id text {:stream-cb stream-cb})
+                      final-text (or result @txt)]
+                  ;; Final edit renders full Markdown as Telegram HTML.
+                  (if result
+                    (edit-message chat-id @msg-id (fmt/md->html result)
+                                  :parse-mode "HTML" :preview false)
+                    ;; Agent streamed without returning full text — finalize accumulated content.
+                    (if (str/blank? @txt)
+                      (edit-message chat-id @msg-id "Извините, не получилось ответить." :parse-mode nil)
+                      (edit-message chat-id @msg-id (fmt/md->html @txt)
+                                    :parse-mode "HTML" :preview false)))
+                  ;; Post-stream callback — for inline buttons, follow-up messages
+                  (when post-stream
+                    (try
+                      (post-stream chat-id user-id @msg-id (str final-text))
+                      (catch Exception e
+                        (log/warn e :post-stream-error))))))
+              ;; Non-streaming fallback
+              (do
+                (send-typing chat-id)
+                (let [resp (agent-fn user-id text)]
+                  (when resp (send-md chat-id resp)))))
+
+            :else
+            (log/warn :no-handler :text text))
+          (catch Exception e
+            (log/error e :handler-error)
+            (when on-error (on-error chat-id e))
+            (try (send-message chat-id "❌ Произошла ошибка." :parse-mode nil)
+                 (catch Exception _))
+            nil))))))
 
 (defn start-polling
   "Convenience: start bot polling with a make-handler config.
@@ -271,7 +386,7 @@
    Example:
    (tg/start-polling
      {:commands {\"/start\" handle-start}
-      :fast-path {\"привет\" greeting}
-      :agent-fn agent-ask-fn})"
+      :agent-fn agent-ask-fn
+      :streaming? true})"
   [handler-config & {:keys [interval-ms] :or {interval-ms 1500}}]
   (poll-loop (make-handler handler-config) :interval-ms interval-ms))

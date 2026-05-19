@@ -1,60 +1,22 @@
 (ns clj-harness.tools.gsheets
   "Google Sheets tool for booking/scheduling. Writes rows to a Google Sheet.
-   Uses service account JSON for auth. Minimal — no heavy Google client libs.
-   
+   Uses gcloud Application Default Credentials for auth.
+
    Tool: book_slot — appends a row with [date, time, name, phone, service, status]
-   
+
    Setup:
    1. Create Google Cloud project, enable Sheets API
-   2. Create service account, download JSON key
-   3. Share your Google Sheet with the service account email (Editor)
-   4. Pass the sheet ID and key JSON to this tool"
+   2. Run: gcloud auth application-default login
+   3. Share your Google Sheet with the authenticated account (Editor)
+   4. Pass the sheet ID to this tool"
   (:require [clojure.string :as str]
             [cheshire.core :as json]
-            [clojure.java.io :as io]
             [clojure.java.shell :as shell])
   (:import [java.net URI]
            [java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers]
            [java.net.http HttpClient$Version]
-           [java.time Duration LocalDateTime ZoneId]
+           [java.time Duration LocalDateTime]
            [java.time.format DateTimeFormatter]))
-
-;; ── Auth ──
-
-(defn- load-key [key-source]
-  "Load Google service account key. key-source can be:
-   - Path to JSON file
-   - Raw JSON string
-   - :env — read from GOOGLE_SERVICE_ACCOUNT_JSON env var"
-  (case key-source
-    :env (some-> (System/getenv "GOOGLE_SERVICE_ACCOUNT_JSON") json/parse-string false)
-    (if (.exists (io/file (str key-source)))
-      (json/parse-string (slurp key-source) false)
-      (try (json/parse-string key-source false) (catch Exception _ nil)))))
-
-;; ── OAuth2 (Service Account) ──
-
-(defn- sign-jwt [header-json payload-json private-key]
-  ;; We'll use a simpler approach: get token via HTTP
-  nil)
-
-(defn- get-access-token
-  "Get OAuth2 access token for service account."
-  [key-data]
-  (let [;; Build JWT manually for service account
-        now (quot (System/currentTimeMillis) 1000)
-        header {"alg" "RS256" "typ" "JWT"}
-        claim {"iss" (get key-data "client_email")
-               "scope" "https://www.googleapis.com/auth/spreadsheets"
-               "aud" (get key-data "token_uri")
-               "exp" (+ now 3600)
-               "iat" now}
-        ;; We need to sign with RSA. Use Java's built-in JWT handling
-        ;; via shelling out to a script, OR use the simpler API key approach
-        ]
-    ;; TODO: implement JWT signing with java.security.Signature
-    ;; For now, use the simpler approach via gcloud CLI if available
-    nil))
 
 ;; ── Append Row ──
 
@@ -64,9 +26,9 @@
                  ":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS")
         body (json/generate-string {"values" [values]})
         client (-> (HttpClient/newBuilder)
-                  (.version HttpClient$Version/HTTP_1_1)
-                  (.connectTimeout (Duration/ofMillis 30000))
-                  .build)
+                   (.version HttpClient$Version/HTTP_1_1)
+                   (.connectTimeout (Duration/ofMillis 30000))
+                   .build)
         builder (doto (HttpRequest/newBuilder (URI/create url))
                   (.timeout (Duration/ofMillis 30000))
                   (.header "Content-Type" "application/json")
@@ -81,8 +43,9 @@
 
 ;; ── Google Sheets via Application Default Credentials ──
 
-(defn- ensure-access-token []
+(defn- ensure-access-token
   "Get access token via gcloud CLI."
+  []
   (try
     (let [res (shell/sh "gcloud" "auth" "application-default" "print-access-token")]
       (str/trim (:out res)))
@@ -102,7 +65,7 @@
   (let [token (ensure-access-token)
         range (str sheet-name "!A:Z")
         result (sheets-api-call token spreadsheet-id range values)]
-    (get result "updates" "updatedRange")))
+    (get-in result ["updates" "updatedRange"])))
 
 (defn read-last-row
   "Read the last row from a sheet."
@@ -111,9 +74,9 @@
         url (str "https://sheets.googleapis.com/v4/spreadsheets/" spreadsheet-id
                  "/values/" sheet-name "!A:Z")
         client (-> (HttpClient/newBuilder)
-                  (.version HttpClient$Version/HTTP_1_1)
-                  (.connectTimeout (Duration/ofMillis 15000))
-                  .build)
+                   (.version HttpClient$Version/HTTP_1_1)
+                   (.connectTimeout (Duration/ofMillis 15000))
+                   .build)
         builder (doto (HttpRequest/newBuilder (URI/create url))
                   (.timeout (Duration/ofMillis 15000))
                   (.header "Authorization" (str "Bearer " token)))
@@ -131,10 +94,10 @@
   "Book a time slot. Appends row: [date, time, client-name, phone, service, status, created-at]
    Returns success message."
   [spreadsheet-id sheet-name {:strs [date time name phone service]
-                              :or {service "-" status "new"}}]
+                              :or {service "-"}}]
   (let [now (.format (LocalDateTime/now) (DateTimeFormatter/ofPattern "yyyy-MM-dd HH:mm"))
-        row [date time name phone service "новый" now]
-        updated (append-row! spreadsheet-id sheet-name row)]
+        row [date time name phone service "новый" now]]
+    (append-row! spreadsheet-id sheet-name row)
     (str "✅ Запись добавлена: " date " " time " — " name " (" phone ")\n"
          "Статус: новый | Лист: " sheet-name)))
 
@@ -147,10 +110,10 @@
   {:name "book_slot"
    :schema {"type" "object"
             "properties" {"date" {"type" "string" "description" "Date in DD.MM.YYYY format"}
-                         "time" {"type" "string" "description" "Time in HH:MM format"}
-                         "name" {"type" "string" "description" "Client name"}
-                         "phone" {"type" "string" "description" "Phone number"}
-                         "service" {"type" "string" "description" "Service booked"}}
+                          "time" {"type" "string" "description" "Time in HH:MM format"}
+                          "name" {"type" "string" "description" "Client name"}
+                          "phone" {"type" "string" "description" "Phone number"}
+                          "service" {"type" "string" "description" "Service booked"}}
             "required" ["date" "time" "name" "phone"]}
    :execute (fn [args]
               (try

@@ -139,6 +139,60 @@
           (or text "")
           md-strip-patterns))
 
+;; ══════════════════════ STREAMING PREVIEW ══════════════════════
+
+(defn- last-match-end
+  "Return the end index of the last regex match in text."
+  [pattern ^String text]
+  (let [matcher (re-matcher pattern text)]
+    (loop [idx nil]
+      (if (.find matcher)
+        (recur (.end matcher))
+        idx))))
+
+(defn- open-code-fence-start
+  "Return start index of an unmatched ``` fence, if text is inside one."
+  [^String text]
+  (let [matcher (re-matcher #"(?m)^```" text)]
+    (loop [n 0
+           start nil]
+      (if (.find matcher)
+        (recur (inc n) (.start matcher))
+        (when (odd? n) start)))))
+
+(defn completed-markdown-prefix
+  "Return the largest prefix that is safe to show as a streaming preview.
+
+   Keeps trailing partial markdown hidden until it reaches a natural boundary:
+   paragraph, completed line/list item, or sentence. If a fenced code block is
+   open, only returns content before that block so users never see half a fence."
+  [text]
+  (let [text (or text "")]
+    (if (str/blank? text)
+      ""
+      (let [candidate (if-let [fence-start (open-code-fence-start text)]
+                        (subs text 0 fence-start)
+                        text)
+            end-idx (or (last-match-end #"\n\s*\n+" candidate)
+                        (last-match-end #"(?m)^.+\n" candidate)
+                        (last-match-end #"[.!?…][\"')\]]?\s+" candidate)
+                        (when (re-find #"[.!?…][\"')\]]?$" candidate)
+                          (count candidate)))]
+        (if end-idx
+          (let [prefix (subs candidate 0 end-idx)]
+            (if-let [fence-start (open-code-fence-start prefix)]
+              (subs prefix 0 fence-start)
+              prefix))
+          "")))))
+
+(defn streaming-preview
+  "Readable plain-text preview for in-progress Markdown streaming.
+
+   Unlike strip-md over the whole response, this buffers unfinished trailing
+   markdown so live Telegram edits show only completed readable blocks."
+  [text]
+  (str/trimr (strip-md (completed-markdown-prefix text))))
+
 ;; ══════════════════════ SPLIT ══════════════════════
 
 (def telegram-max-length 4096)

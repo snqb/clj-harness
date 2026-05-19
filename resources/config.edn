@@ -3,7 +3,9 @@
  :models {:claude-sonnet "anthropic/claude-sonnet-4"
           :claude-opus "anthropic/claude-opus-4-5"
           :gemini-flash "google/gemini-2.5-flash"
-          :gpt-4o "openai/gpt-4o"}
+          :gpt-4o "openai/gpt-4o"
+          :deepseek-v4-pro "deepseek-v4-pro"
+          :deepseek-v4-flash "deepseek-v4-flash"}
  :agent {:max-turns 15
          :max-tool-output 8000
          :compact-threshold 60000
