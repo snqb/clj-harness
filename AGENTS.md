@@ -1,307 +1,194 @@
 <!-- Updated: 2026-05-19 -->
 # clj-harness
 
-> Generic Clojure agent harness — middleware-based LLM + tools framework. OpenRouter + DeepSeek, MCP or direct tools, per-user sessions, streaming, SQLite persistence. ~2154 lines across 15 files.
+> Generic Clojure agent harness: middleware-based LLM + tools framework with OpenRouter/DeepSeek, MCP/direct tools, per-user sessions, streaming, Telegram helpers, SQLite persistence, and optional heap storage for large tool outputs. Current: `v2.2.0`.
 
-## Architecture v2
+## Architecture
 
-```
-create-bot → handle-message → middleware pipeline → compaction
-                ↓                    ↓
-          session atoms        core-agent (llm.clj)
-          (SQLite-backed)      → wrap-tools (middleware.clj)
-                               → wrap-retry (middleware.clj)
-                               → wrap-logging (middleware.clj)
-                               → streaming (stream.clj)
-```
+`core.clj` is orchestration only. Reusable behavior lives in focused modules:
 
-**Dependency graph** — clean, acyclic:
-```
-infra ──────────────────── (no deps)
-  ↑         ↑
-llm       mcp ───────────── (→ infra)
-  ↑         ↑
-middleware ───────────────── (→ mcp, infra — handler injected, no llm dep!)
-  ↑
-core ────────────────────── (→ infra, llm, middleware, mcp, compact, session)
-  ↑
-session/memory ──────────── (→ nothing)
-tools/shell ──────────────── (→ clojure.java.shell only)
+```text
+infra ──┬── llm ───────┐
+        ├── mcp ──┐    │
+        │         └── middleware
+        └────────────── stream ── heap (optional large tool results)
+
+session.memory / session.sqlite ── core ── telegram / telegram.streaming
 ```
 
-Middleware stack: composable, testable. Each bot is `{:config {...} :pipeline fn :sessions (atom {})}`.
+Flow:
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `core.clj` | 290 | Orchestration only: create-bot, message handling, async, MCP bot convenience; delegates to extracted modules |
-| `llm.clj` | 66 | LLM client: provider dispatch (data-driven), API calls, core-agent handler |
-| `middleware.clj` | 114 | Middleware stack: wrap-tools (tool loop), wrap-retry (backoff), wrap-logging (telemetry), schema conversion |
-| `infra.clj` | 69 | Shared infrastructure: Aero config, pass/env secrets, raw HTTP/1.1 client — bottom of dependency chain |
-| `compact.clj` | 90 | Adaptive compaction: token estimation, injected LLM summarizer, keep-recent scaling |
-| `mcp.clj` | 61 | MCPvisor client: tool discovery (cached), JSON-RPC calls, schema→OpenAI conversion |
-| `session/memory.clj` | 56 | In-memory session atoms: message history, arbitrary data, complements SQLite persistence |
-| `tools/shell.clj` | 43 | Shell command tools: {{key}} template substitution, string/int args, sh interop |
-| `stream.clj` | 251 | SSE streaming via Java HttpClient, `llm-stream` → core.async channel, provider-agnostic |
-| `telegram.clj` | 335 | Telegram Bot API: send, edit, typing, polling, handler, format helpers |
-| `telegram/format.clj` | 245 | Markdown → Telegram HTML; block-buffered plain previews for streaming; split at 4096 chars |
-| `telegram/streaming.clj` | 196 | Progressive streaming to Telegram: block-buffered previews, final md→html, stopped ticker |
-| `session/sqlite.clj` | 74 | SQLite persistence — per-bot per-user message storage, survive restarts |
-| `skills.clj` | 133 | Design system loader: loads 99+ design systems from EDN resources, merges into agent system prompt |
-| `tools/gsheets.clj` | 131 | Google Sheets booking tool via gcloud ADC, append booking rows (date, time, name, phone, service, status) |
-
-## Two Tool Modes
-
-**Direct tools** (no MCP needed):
-```clojure
-{:name "search" :description "Search web"
- :schema {"type" "object" "properties" {"q" {"type" "string"}}}
- :execute (fn [args] "results...")}
+```text
+create-bot → handle-message → prepare messages → middleware pipeline → LLM/tool loop
+                         │
+                         ├─ handle-message-stream! → stream/stream-agent
+                         └─ handle-message-async  → daemon Thread + core.async channel
 ```
 
-**MCP tools** (via MCPvisor):
-```clojure
-(create-mcp-bot {:name "bot" :prompt "..." :mcp-tools [:get_weather :get_today_date]})
-```
+## Module Map
 
-**Shell tools** (call Python/Node scripts):
-```clojure
-(shell-tool "lalafo_search" "Search Lalafo"
-  "python3 lalafo/client.py --q='{{query}}' --max={{max}}"
-  {:query :string :max :number})
-```
+| File | Purpose |
+|------|---------|
+| `src/clj_harness/core.clj` | Public bot API + orchestration; delegates to extracted modules; keeps compatibility aliases like `h/llm`, `h/mcp-call`, `h/shell-tool`. |
+| `src/clj_harness/infra.clj` | Aero config, pass/env secrets, raw Java HTTP/1.1 client. Bottom of dependency chain. |
+| `src/clj_harness/llm.clj` | Provider dispatch, model resolution, raw LLM call, `core-agent`. |
+| `src/clj_harness/mcp.clj` | MCPvisor JSON-RPC calls, tool discovery cache, MCP→OpenAI schema conversion. |
+| `src/clj_harness/middleware.clj` | `wrap-tools`, `wrap-retry`, `wrap-logging`, tool schema conversion, optional `tool-post-process`. |
+| `src/clj_harness/compact.clj` | Pure compaction transform with injected summarizer; no circular dependency. |
+| `src/clj_harness/stream.clj` | SSE streaming on raw Thread, streaming tool loop, optional heap integration. |
+| `src/clj_harness/heap.clj` | Session-scoped content-addressable store for large tool outputs; adds `fetch_result` pattern. |
+| `src/clj_harness/session/*.clj` | In-memory session atom helpers + SQLite persistence config. |
+| `src/clj_harness/telegram*.clj` | Telegram Bot API, Markdown→HTML, block-buffered streaming previews, keyboards/inline markup. |
+| `src/clj_harness/tools/*.clj` | Shell tool factory and Google Sheets booking tool via gcloud ADC. |
+| `src/clj_harness/skills.clj` | Prompt skill/design-system loader from EDN resources. |
 
-## Middleware
-
-Pipeline: `core-agent → wrap-tools → wrap-retry → wrap-logging`
-
-- **core-agent** — raw LLM call, returns `{:content :tool-calls :finish}`
-- **wrap-tools** — auto tool calling loop, feeds results back to LLM
-- **wrap-retry** — retries on HTTP/LLM errors with backoff
-- **wrap-logging** — logs timing and finish reason
-
-## Bot Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `:name` | — | Bot name |
-| `:prompt` | — | System prompt |
-| `:tools` | [] | Tool definitions |
-| `:model` | :claude-sonnet (`:deepseek-v4-pro` when `:provider :deepseek`) | LLM model |
-| `:provider` | :openrouter | :openrouter or :deepseek |
-| `:max-turns` | 10 | Max tool-calling iterations |
-| `:max-retries` | 2 | Retry count on failures |
-| `:pre-hook` | nil | `(fn [user-id text session] => extra-prompt)` |
-| `:on-save` | nil | `(fn [user-id session])` called after each response |
-| `:persistence` | nil | SQLite persistence config from `clj-harness.session.sqlite/create` — {
-
-## Providers
-
-Two providers supported (both read keys from pass store):
-- **OpenRouter**: `pass openrouter/token` or `OPENROUTER_API_KEY` env
-- **DeepSeek**: `pass deepseek-api/token` or `DEEPSEEK_API_KEY` env; use `:provider :deepseek` with `:model :deepseek-v4-pro` for DeepSeek-V4-Pro.
-
-Model resolution: checks `config.edn :models` map first, then falls back to literal string.
-
-## Key Design Decisions
-
-1. **Middleware over monolith** — Each concern is a composable function. Test individually. Swap order easily.
-2. **Raw Java HttpClient (HTTP/1.1)** — MCPvisor rejects HTTP/2. Works for all providers.
-3. **Cheshire JSON** — `(parse-string s false)` = string keys, `true` = keyword keys.
-4. **Atoms for sessions** — Thread-safe, REPL-inspectable.
-5. **Pure recursion agent loop** — No mutable state, no classes.
-6. **Aero config** — `#env` and `#or` for env-aware `.edn` on classpath.
-7. **String keys everywhere** — `(get m "key")` not `(:key m)`. LLM JSON always uses string keys.
-
-## Gotchas
-
-- **Tool defs take maps, not keywords** — `:tools [{:name "x" :execute fn}]` not `:tools [:x]`. Use `create-mcp-bot` for keyword-style MCP tools.
-- **`on-save` must be fast** — called synchronously after each response. Use future/thread for slow saves.
-- **HTTP/1.1 only** — MCPvisor returns 400 on HTTP/2. Already handled.
-- **Config on classpath** — `config.edn` in `resources/` on `:paths`.
-- **Compaction threshold** — defaults to 60K tokens. Configurable via `:agent :compact-threshold`.
-- **Tool output truncated** — default 8K chars, controlled by `:max-tool-output` in config.
-
-## Recipes
-
-### With SQLite persistence
-```clojure
-(require '[clj-harness.core :as h]
-         '[clj-harness.session.sqlite :as sess])
-
-(def persistence (sess/create "/tmp/mybot.db"))
-
-(def bot (h/create-bot
-           {:name "mybot"
-            :prompt "You are helpful."
-            :tools [{:name "weather" :schema {...} :execute (fn [_] "sunny")}]
-            :model :gemini-flash
-            :persistence persistence}))
-
-(h/handle-message bot "user-1" "Hi!")
-;; => Sessions survive restarts — messages saved to SQLite
-
-;; Create same bot after restart
-(def bot2 (h/create-bot {:name "mybot" :prompt "You are helpful." :tools [...]
-                          :model :gemini-flash :persistence persistence}))
-(h/handle-message bot2 "user-1" "What did I just say?")
-;; => Has full conversation history from DB
-```
-
-### Quick start (REPL)
-```bash
-cd /Users/sn/Projects/clj-harness
-clj -M:repl
-```
+## Public Bot API
 
 ```clojure
 (require '[clj-harness.core :as h])
 
-;; Direct tools — no MCP needed
-(def bot (h/create-bot
-           {:name "helper"
-            :prompt "You are helpful. Be concise."
-            :tools [{:name "weather"
-                     :description "Get weather"
-                     :schema {"type" "object" "properties" {"city" {"type" "string"}}}
-                     :execute (fn [args] (str "Weather in " (get args "city") ": sunny"))}]
-            :model :gemini-flash}))
+(def bot
+  (h/create-bot
+    {:name "helper"
+     :prompt "You are helpful. Be concise."
+     :tools [{:name "weather"
+              :description "Get weather"
+              :schema {"type" "object"
+                       "properties" {"city" {"type" "string"}}
+                       "required" ["city"]}
+              :execute (fn [args] (str "Weather in " (get args "city") ": sunny"))}]
+     :model :gemini-flash}))
 
 (h/handle-message bot "u1" "Weather in Paris?")
-@(:sessions bot)
 ```
 
-### MCP bot (needs MCPvisor)
+Bot options to remember:
+
+| Option | Default | Notes |
+|--------|---------|-------|
+| `:provider` | `:openrouter` | Also supports `:deepseek`. |
+| `:model` | `:claude-sonnet` | `config.edn` maps keys; DeepSeek examples use `:deepseek-v4-pro` / `:deepseek-v4-flash`. |
+| `:tools` | `[]` | Maps with `:name`, `:schema`, `:execute`; not keywords unless using `create-mcp-bot`. |
+| `:max-turns` | `10` | Tool-call loop limit. |
+| `:pre-hook` | nil | `(fn [user-id text session] => extra-system-prompt-string)`. |
+| `:on-save` | nil | Synchronous; keep fast or spawn work. |
+| `:persistence` | nil | Use `(clj-harness.session.sqlite/create "/tmp/bot.db")`. |
+| `:context-reminder?` | true | Adds recent user topics to prompt. |
+| `:tool-post-process` | nil | `(fn [tool-name result] => enriched-result)` before truncation. |
+
+## Tool Modes
+
+Direct tools:
+
 ```clojure
-(def tour-bot (h/create-mcp-bot
-                {:name "tour" :prompt "Tour manager..."
-                 :mcp-tools [:get_today_date :search_tours]
-                 :model :claude-sonnet}))
-(h/handle-message tour-bot "u1" "Туры из Бишкека?")
+{:name "search"
+ :description "Search web"
+ :schema {"type" "object" "properties" {"q" {"type" "string"}}}
+ :execute (fn [args] "results...")}
 ```
 
-### Shell-tool bot (calls Python)
+MCP tools:
+
 ```clojure
-(def lalafo-bot (h/create-bot
-                  {:name "shopping"
-                   :prompt "Shopping assistant. Use lalafo_search."
-                   :tools [(h/shell-tool "lalafo_search" "Search Lalafo"
-                             "python3 lalafo_search.py --q='{{query}}'"
-                             {:query :string})]
-                   :model :claude-sonnet}))
+(h/create-mcp-bot
+  {:name "tour"
+   :prompt "Tour manager..."
+   :mcp-tools [:get_today_date :search_tours]
+   :model :claude-sonnet})
 ```
 
-### Async
+Shell tools:
+
 ```clojure
-(def ch (h/handle-message-async bot "u1" "query"))
-(println (<!! ch))
+(h/shell-tool "lalafo_search" "Search Lalafo"
+  "python3 lalafo_search.py --q='{{query}}' --max={{max}}"
+  {:query :string :max :number})
 ```
-
-### Raw LLM call
-```clojure
-(h/llm :claude-sonnet
-  [{"role" "system" "content" "Be brief."}
-   {"role" "user" "content" "Say hi in Russian"}]
-  [])
-```
-
-### Raw MCP
-```clojure
-(require '[clj-harness.mcp :as mcp])
-(mcp/mcp-call :get_today_date)
-(mcp/list-mcp-tools)
-```
-
-### Reset conversation (/reset command)
-```clojure
-;; Add to make-handler :commands
-(tg/make-handler
-  {:commands {"/start" handle-start
-              "/reset" (fn [{:keys [chat-id user-id]}]
-                         (h/reset-session! @bot user-id)
-                         (tg/send-message chat-id "✅ Conversation reset."))}
-   ...})
-```
-
-### Shell tools
-```clojure
-(require '[clj-harness.tools.shell :as st])
-(st/shell-tool "search" "Search API" "curl -s api.example.com?q={{query}}" {:query :string})
-```
-
-### LLM calls (raw)
-```clojure
-(require '[clj-harness.llm :as llm])
-(llm/llm :claude-sonnet
-  [{"role" "system" "content" "Be brief."}
-   {"role" "user" "content" "Say hi in Russian"}]
-  [])
-(llm/core-agent {:model :claude-sonnet :messages [...]})
-```
-
-## Dependencies
-- Java 21+ (for `java.net.http`)
-- Clojure 1.12
-- Cheshire (JSON), core.async (streaming)
-- tools.logging + Logback (structured logging)
-- Aero (config)
-- next.jdbc + sqlite-jdbc (session persistence)
-- MCPvisor (optional, for MCP tools)
 
 ## Streaming
 
-`handle-message-async` supports `:stream? true` mode — returns a `core.async` channel of `{:delta "text"}` / `{:finish "stop"}` / `{:done :closed}` chunks:
+Core async:
 
 ```clojure
-(def ch (h/handle-message-async bot "u1" "Tell a story" {:stream? true}))
-(go-loop []
-  (when-let [msg (<! ch)]
-    (println "CHUNK:" (:delta msg))  ;; nil on finish/done
-    (when (not= :closed (:done msg))
-      (recur))))
+(def ch (h/handle-message-async bot "u1" "Tell a story" :stream? true))
+(loop []
+  (when-let [msg (<!! ch)]
+    (when-let [delta (:delta msg)] (print delta))
+    (when-not (= :closed (:done msg)) (recur))))
 ```
 
-Under the hood: SSE parser in `clj-harness.stream` — works for both DeepSeek (native) and OpenRouter (proxied). Self-contained module (no circular deps).
+Telegram streaming UX:
 
-## Compaction (clj-harness.compact)
+- Mid-stream edits use **block-buffered plain text** via `telegram.format/streaming-preview`; unfinished Markdown stays hidden.
+- Final edit renders full Markdown to Telegram HTML.
+- `telegram.streaming/stream-to-telegram` uses a stopped ticker (`stop-ch`) so no leaking go-loop.
+- `telegram/make-handler` supports `:streaming?`, `:reply-markup`, `:post-stream`, and `:on-location`.
 
-Adaptive compaction with Unicode-aware token estimation, extracted to its own module:
-- Token estimator: char-by-char — ASCII ~0.3 tokens/char, non-ASCII ~0.75 tokens/char
-- Default threshold: 60K tokens (configurable via `:agent :compact-threshold`)
-- Keep-recent count: dynamically scales (8→6→4→2) based on total token count
-- Summary: oldest half summarized via injected `summarize-fn` (set in `create-bot` as `:compact-summarize-fn`) — prepended as `[conversation summary]` system message
-- Fallback: if summarizer fails, keep last 10 messages
-- No circular dependencies: `compact.clj` is a pure transform, receives summarize-fn as parameter
+## Heap for Large Tool Results
 
-## Gaps & Current State
+Use `clj-harness.heap/create-heap` and pass `:heap` to `stream/stream-agent`. Results over 2K chars are stored outside context and replaced with compact summaries + heap IDs. A `fetch_result` tool is auto-added so the model can retrieve/filter details on demand.
 
-Active modules:
-- `clj-harness.infra` — Config, secrets, HTTP client (shared foundation) ✅
-- `clj-harness.llm` — Provider dispatch + core-agent handler ✅
-- `clj-harness.middleware` — Tool loop, retry, logging middleware ✅
-- `clj-harness.compact` — Adaptive conversation compaction ✅
-- `clj-harness.mcp` — MCPvisor client (tool discovery, execution, schema conversion) ✅
-- `clj-harness.session.memory` — In-memory session atoms ✅
-- `clj-harness.tools.shell` — Shell command tools ✅
-- `clj-harness.stream` — SSE streaming for DeepSeek/OpenRouter ✅
-- `clj-harness.telegram` — Bot API ✅
-- `clj-harness.telegram.format` — Markdown→Telegram HTML + strip-md for streaming ✅
-- `clj-harness.telegram.streaming` — Progressive streaming with throttle-edits ✅
-- `clj-harness.session.sqlite` — SQLite persistence ✅
-- `clj-harness.skills` — Design system loader (99+ systems) ✅
-- `clj-harness.tools.gsheets` — Google Sheets booking tool ✅
+Downstream example: `../tapalakbot-v2/src/tapalakbot/bot.clj` uses `clj-harness.heap` for large tool outputs.
 
-Planned:
-- _(none — compaction, MCP, LLM, middleware, sessions, shell all extracted 2026-05-17)_
+## Gotchas
 
-## Versioning
+- **String keys everywhere for LLM JSON**: use `(get m "key")`, not `(:key m)`, unless a function explicitly returns keywordized data.
+- **Core is not the implementation layer**: if adding HTTP/LLM/MCP/session/tool behavior, put it in the focused module and delegate from `core.clj`.
+- **Do not reintroduce duplicated code**: `bunx jscpd src --threshold 3 --min-lines 5 --min-tokens 30 --reporters console` should stay at 0 clones.
+- **DeepSeek model keys**: use configured keys like `:deepseek-v4-pro`; model resolution falls back to `(name model-key)`.
+- **Tool output truncation**: middleware truncates at `:agent :max-tool-output` (default 8000). Streaming heap mode avoids pushing huge outputs into context.
+- **Telegram Markdown streaming**: preview plain text during stream, final HTML only at the end. Avoid partial Markdown rendering.
+- **Public API dead-code false positives**: `clojure-lsp unused-public-var` and Carve reports are low confidence for this library. Use Carve `:api-namespaces` before deleting.
+- **Google Sheets auth**: `tools/gsheets.clj` uses gcloud Application Default Credentials, not service-account JSON signing.
 
-- **Git tags** for release pinning: `git tag vX.Y.Z`
-- **Dependents use**: `{:git/url "file:///.../clj-harness" :git/tag "v2.0.0"}`
-- **Dev**: swap to `:local/root` for live edits
-- **Upgrade guide**: `UPGRADE-v2.md` — migration checklist for downstream bots
-- **Current**: `v2.0.0` — streaming + reset keyboard + 60K compaction + reply_markup
+## Quality Commands
+
+```bash
+# After every .clj edit
+clj-paren-repair src/clj_harness/core.clj
+clojure-lsp format --filenames src/clj_harness/core.clj
+clojure-lsp diagnostics --filenames src/clj_harness/core.clj
+
+# Whole project smoke
+clojure -M -e '(doseq [n (quote [clj-harness.core clj-harness.stream clj-harness.telegram])] (require n)) (println :ok)'
+
+# Duplicate code gate
+bunx jscpd src --threshold 3 --min-lines 5 --min-tokens 30 --reporters console
+
+# Clojure dead-code pass
+clojure-lsp diagnostics 2>&1 | grep -E "unused-(private-var|binding|import|namespace|referred-var)|unused-value|unused-public-var|error"
+```
+
+## Versioning / Dependents
+
+**Recommended setup** — zero ceremony for solo dev:
+
+```clojure
+;; DEV — live local/root, all projects pick up harness changes instantly
+clj-harness/clj-harness {:local/root "../clj-harness"}
+
+;; PROD — pin to a git tag when deploying (Railway, etc.)
+;; clj-harness/clj-harness {:git/url "file:///Users/sn/Projects/clj-harness"
+;;                          :git/tag "v2.2.0"}
+```
+
+No vendoring, no Clojars, no Maven. Git tags are checkpoints (v2.0.0 → v2.1.0 → v2.2.0).
+
+**Release history**: `v2.0.0` (streaming+compaction) → `v2.1.0` (heap) → `v2.2.0` (extraction).
+Current: `v2.2.0`.
+
+**Dependents** (all `:local/root` for dev):
+
+| Project | Dep type | Status |
+|---|---|---|
+| cljr-site-factory | git tag v2.0.0 (prod) | ✅ |
+| tapalakbot-v2 | local/root | DEV |
+| cljr-wedding-factory | local/root ../clj-harness | DEV |
+| pb-bot (contracts-railway) | local/root | DEV |
+
+`.pi/` is gitignored — do not commit task state.
 
 ## Related
-- Architecture doc: `../tapalakbot-v2/.git/reports/system-architecture-20260515.md`
-- PI skill: `~/.pi/agent/skills/clojure-harness/SKILL.md`
-- Site factory (production user): `/Users/sn/Projects/cljr-site-factory/`
+
+- PI skill: `/Users/sn/.pi/agent/skills/clojure-harness/SKILL.md`
+- Production user (pinned to v2.0.0): `/Users/sn/Projects/cljr-site-factory/`
