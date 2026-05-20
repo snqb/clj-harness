@@ -53,7 +53,7 @@
                                                "description" "Get full details from a previously stored tool result. Use this when you need to see specific items from a large search result that was stored in the heap."
                                                "parameters" {"type" "object"
                                                              "properties" {"heap_id" {"type" "string"
-                                                                                      "description" "The heap ID reference from a previous tool result (e.g. heap:abc123)"}
+                                                                                      "description" "The heap ID reference from a previous tool result (e.g. 3)"}
                                                                            "query" {"type" "string"
                                                                                     "description" "Optional: filter results matching this query"}}
                                                              "required" ["heap_id"]}}})

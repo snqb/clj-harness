@@ -1,7 +1,7 @@
 <!-- Updated: 2026-05-19 -->
 # clj-harness
 
-> Generic Clojure agent harness: middleware-based LLM + tools framework with OpenRouter/DeepSeek, MCP/direct tools, per-user sessions, streaming, Telegram helpers, SQLite persistence, and optional heap storage for large tool outputs. Current: `v2.2.0`.
+> Generic Clojure agent harness: middleware-based LLM + tools framework with OpenRouter/DeepSeek, MCP/direct tools, per-user sessions, streaming, Telegram helpers, SQLite persistence, and optional heap storage for large tool outputs. Current: `v2.2.0`. Defaults: `deepseek` provider + `deepseek-v4-pro` model.
 
 ## Architecture
 

@@ -130,9 +130,8 @@
      :name        — bot name (string)
      :prompt      — system prompt (string)
      :tools       — vector of tool defs: [{:name :schema {:execute fn}} ...]
-     :model       — model key: :claude-sonnet, :gemini-flash, :deepseek-v4-pro
-                    default is :claude-sonnet, or :deepseek-v4-pro when provider is :deepseek
-     :provider    — :openrouter (default) or :deepseek
+     :model       — model key: :deepseek-v4-pro (default), :claude-sonnet, :gemini-flash
+     :provider    — :deepseek (default) or :openrouter
      :max-turns   — max tool-calling iterations (default 10)
      :max-retries — LLM call retries on failure (default 2)
      :pre-hook         — (fn [user-id text session] => extra-system-prompt-string)
@@ -145,11 +144,11 @@
    Returns {:config {...} :pipeline fn :sessions (atom {})}."
   [{:keys [name prompt tools model provider max-turns max-retries pre-hook on-save
            context-reminder? tool-post-process persistence]
-    :or {provider :openrouter max-turns 10 max-retries 2 context-reminder? true}}]
+    :or {provider :deepseek max-turns 10 max-retries 2 context-reminder? true}}]
   (let [resolved-provider (or provider :openrouter)
         resolved-model (or model (if (= resolved-provider :deepseek)
                                    :deepseek-v4-pro
-                                   :claude-sonnet))
+                                   :gemini-flash))
         pipeline (-> (fn [ctx]
                        (llm-client/core-agent
                         (merge {:model resolved-model :provider resolved-provider} ctx)))

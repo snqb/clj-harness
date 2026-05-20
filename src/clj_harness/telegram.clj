@@ -341,10 +341,7 @@
                                     (catch Exception e
                                       (log/warn e :stream-edit-fail :msg-id mid :text-len (count @txt))))))
                     placeholder (send-message chat-id "⏳ Думаю…"
-                                              :parse-mode nil
-                                              :reply_markup (if (fn? reply-markup)
-                                                              (reply-markup chat-id user-id)
-                                                              reply-markup))
+                                              :parse-mode nil)
                     mid-val (get-in placeholder ["result" "message_id"])]
                 (log/info :stream-placeholder-sent :msg-id mid-val)
                 (vreset! msg-id mid-val)

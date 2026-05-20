@@ -18,8 +18,7 @@
      │ Top: HP 21K, ...  │        │ def456 → [shell out] │
      └──────────────────┘        └─────────────────────┘"
   (:require [clojure.string :as str]
-            [clojure.tools.logging :as log])
-  (:import [java.util UUID]))
+            [clojure.tools.logging :as log]))
 
 ;; ══════════════════════ CONFIG ══════════════════════
 
@@ -38,10 +37,12 @@
 ;; ══════════════════════ STATE ══════════════════════
 
 (defn create-heap
-  "Create a fresh heap (per-session atom)."
+  "Create a fresh heap (per-session atom).
+   Returns atom with {:entries {} :order [] :counter (atom 0)}"
   []
   (atom {:entries {}     ;; {heap-id {:data ... :tool ... :created ... :size ...}}
-         :order []}))     ;; LRU order: oldest first
+         :order []        ;; LRU order: oldest first
+         :counter (atom 0)}))  ;; sequential ID counter
 
 ;; ══════════════════════ CORE OPERATIONS ══════════════════════
 
@@ -55,8 +56,8 @@
         size (count result-str)]
     (if (< size *heap-threshold*)
       nil  ;; caller responsibility: use inline
-      (let [heap-id (str (UUID/randomUUID))
-            ;; Extract summary: first 3 items (or first 500 chars)
+      (let [;; Sequential numeric IDs — token-optimal for LLMs ("heap:3" = 2 tokens vs 12 for UUID)
+            heap-id (str (swap! (:counter heap) inc))
             summary (subs result-str 0 (min 500 size))
             entry {:tool tool-name
                    :data result-str
