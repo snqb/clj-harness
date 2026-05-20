@@ -10,6 +10,7 @@
   (:require
    [cheshire.core :as json]
    [clojure.tools.logging :as log]
+   [clj-harness.heap :as heap]
    [clj-harness.infra :as infra :refer [cfg]]
    [clj-harness.mcp :as mcp]))
 
@@ -32,14 +33,44 @@
      {:name \"search\" :description \"...\" :schema {...} :execute (fn [args] \"result\")}
      {:mcp true :name \"get_weather\" ...}  ;; auto-resolved from MCPvisor
 
+   When :heap is present in ctx, large tool outputs (>2K chars) are stored
+   externally and replaced with compact summaries + heap-id references.
+   fetch_result tool is auto-injected to allow LLM to retrieve full results.
+
    Feeds tool results back to the handler (LLM) until it produces a text response
    or hits max-turns. Returns {:content ... :tool-calls nil} when done."
   ([handler tools] (wrap-tools handler tools nil))
   ([handler tools tool-post-process]
-   (let [tool-map (into {} (map (fn [t] [(get t "name" (:name t)) t]) tools))
-         tool-schemas (mapv tool->openai-schema tools)]
-     (fn [{:keys [messages max-turns] :as ctx}]
-       (let [mt (or max-turns (cfg :agent :max-turns) 10)]
+   (let [_tool-map (into {} (map (fn [t] [(get t "name" (:name t)) t]) tools))
+         _tool-schemas (mapv tool->openai-schema tools)]
+     (fn [{:keys [messages max-turns heap] :as ctx}]
+       (let [mt (or max-turns (cfg :agent :max-turns) 10)
+             ;; Auto-add fetch_result when heap is active
+             tool-schemas (if heap
+                            (conj _tool-schemas
+                                  {"type" "function"
+                                   "function" {"name" "fetch_result"
+                                               "description" "Get full details from a previously stored tool result. Use this when you need to see specific items from a large search result that was stored in the heap."
+                                               "parameters" {"type" "object"
+                                                             "properties" {"heap_id" {"type" "string"
+                                                                                      "description" "The heap ID reference from a previous tool result (e.g. heap:abc123)"}
+                                                                           "query" {"type" "string"
+                                                                                    "description" "Optional: filter results matching this query"}}
+                                                             "required" ["heap_id"]}}})
+                            _tool-schemas)
+             tool-map (if heap
+                        (assoc _tool-map
+                               "fetch_result"
+                               {:name "fetch_result"
+                                :description "Get full details from a previously stored tool result"
+                                :execute (fn [args]
+                                           (let [hid (get args "heap_id")
+                                                 q (get args "query")]
+                                             (if q
+                                               (heap/fetch-with-query heap hid q)
+                                               (or (heap/fetch heap hid)
+                                                   (str "Heap entry " hid " not found or expired.")))))})
+                        _tool-map)]
          (loop [msgs messages turn 0]
            (if (>= turn mt)
              {:content (str "⚠️ Reached max turns (" mt "). Try a more specific query.")
@@ -64,13 +95,24 @@
                                                 (try (tool-post-process tn result)
                                                      (catch Exception _ result))
                                                 result)
-                                     max-out (or (cfg :agent :max-tool-output) 8000)
-                                     truncated (if (and (string? enriched) (> (count enriched) max-out))
-                                                 (str (subs enriched 0 max-out) "\n...(truncated)")
-                                                 enriched)]
+                                     result-str (str enriched)
+                                     ;; Heap storage: if heap active and result > 2K chars
+                                     heap-ref (when heap
+                                                (heap/store! heap tn result-str))
+                                     fmt-result (if heap-ref
+                                                  (str (heap/extract-key-items result-str)
+                                                       "\n\n📦 Stored in heap: " (:heap-id heap-ref)
+                                                       " (" (:size heap-ref) " chars)."
+                                                       " Use fetch_result to get full details.")
+                                                  ;; No heap: truncate to 8K as before
+                                                  (let [max-out (or (cfg :agent :max-tool-output) 8000)]
+                                                    (if (> (count result-str) max-out)
+                                                      (str (subs result-str 0 max-out)
+                                                           "\n...(truncated)")
+                                                      result-str)))]
                                  {"role" "tool"
                                   "tool_call_id" (get tc "id")
-                                  "content" (str truncated)}))
+                                  "content" fmt-result}))
                              calls)]
                    (recur (into (conj msgs {"role" "assistant" "content" (:content resp) "tool_calls" calls})
                                 tool-results)

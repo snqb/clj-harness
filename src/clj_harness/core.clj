@@ -8,6 +8,7 @@
    [clojure.core.async :refer [chan close! >!!]]
    [clojure.tools.logging :as log]
    [clj-harness.compact :as compact]
+   [clj-harness.heap :as heap]
    [clj-harness.infra :as infra]
    [clj-harness.llm :as llm-client]
    [clj-harness.mcp :as mcp]
@@ -181,12 +182,18 @@
    (handle-message bot \"user-1\" \"Find me a laptop\")
    (handle-message bot \"user-1\" \"Cheaper?\" :model :gemini-flash)
 
+   If session has a :heap atom (from create-heap), large tool outputs are
+   stored externally and replaced with compact summaries.
+
    Override options: :model :provider :max-turns"
   [bot user-id text & {:keys [model provider max-turns] :as overrides}]
   (let [session (get-or-create-session bot user-id)
         _ (memory/session-add! session "user" text)
         msgs (prepare-messages bot user-id text session)
+        ;; Extract heap from session data if present
+        session-heap (get-in @session ["data" "heap"])
         ctx (merge {:messages msgs :max-turns (:max-turns bot)}
+                   (when session-heap {:heap session-heap})
                    (when model {:model model})
                    (when provider {:provider provider})
                    (when max-turns {:max-turns max-turns})
@@ -195,6 +202,8 @@
         result (or (:content resp) "Sorry, something went wrong.")]
     (memory/session-add! session "assistant" result)
     (save-session! bot user-id session)
+    ;; GC expired heap entries
+    (when session-heap (heap/gc! session-heap))
     result))
 
 (defn handle-message-stream!
@@ -202,12 +211,15 @@
    stream-cb: (fn [text-chunk]) called with incremental text.
    Uses stream-agent for the agent loop (tools supported).
 
+   If session has a :heap atom, it's passed to stream-agent for tool output storage.
+
    Returns accumulated full text, or nil on error."
   [bot user-id text stream-cb]
   (try
     (let [session (get-or-create-session bot user-id)
           _ (memory/session-add! session "user" text)
           msgs (prepare-messages bot user-id text session)
+          session-heap (get-in @session ["data" "heap"])
           result (stream/stream-agent
                   :model (:model (:config bot))
                   :messages msgs
@@ -215,10 +227,12 @@
                   :tool-schemas (tool-schemas (:tools bot))
                   :stream-cb stream-cb
                   :provider (:provider (:config bot))
-                  :max-turns (:max-turns bot))]
+                  :max-turns (:max-turns bot)
+                  :heap session-heap)]
       (when result
         (memory/session-add! session "assistant" result)
         (save-session! bot user-id session))
+      (when session-heap (heap/gc! session-heap))
       result)
     (catch Exception e
       (log/error e :stream-error)
