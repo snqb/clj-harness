@@ -57,7 +57,7 @@
     (if (< size *heap-threshold*)
       nil  ;; caller responsibility: use inline
       (let [;; Sequential numeric IDs — token-optimal for LLMs ("heap:3" = 2 tokens vs 12 for UUID)
-            heap-id (str (swap! (:counter heap) inc))
+            heap-id (str (swap! (:counter @heap) inc))
             summary (subs result-str 0 (min 500 size))
             entry {:tool tool-name
                    :data result-str
@@ -74,7 +74,7 @@
                                 (log/debug :heap-evict evict-id :reason :lru)
                                 [(dissoc entries evict-id) (subvec order 1)])
                               [entries order])]
-                        {:entries entries :order order})))
+                        {:entries entries :order order :counter (:counter h)})))
         (log/debug :heap-store heap-id :size size :tool tool-name)
         {:heap-id heap-id
          :summary summary
@@ -131,13 +131,14 @@
                     (when (pos? (count expired-ids))
                       (log/debug :heap-gc :evicted (count expired-ids)))
                     {:entries (apply dissoc (:entries h) expired-ids)
-                     :order (vec (remove (set expired-ids) (:order h)))})))
+                     :order (vec (remove (set expired-ids) (:order h)))
+                     :counter (:counter h)})))
     @expired))
 
 (defn clear!
   "Clear all heap entries."
   [heap]
-  (reset! heap {:entries {} :order []}))
+  (reset! heap {:entries {} :order [] :counter (:counter @heap)}))
 
 (defn stats
   "Return {:entries N :total-size bytes :oldest-age-ms N}."
