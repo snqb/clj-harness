@@ -10,9 +10,10 @@
    [clojure.core.async :refer [chan close! >!! <!!]]
    [clojure.string :as str]
    [clojure.tools.logging :as log]
-   [clj-harness.heap :as heap]
+   [clj-harness.guardrails :as gr]
    [clj-harness.infra :as infra]
-   [clj-harness.llm :as llm])
+   [clj-harness.llm :as llm]
+   [clj-harness.tool-loop :as tl])
   (:import
    [java.net URI]
    [java.net.http HttpClient HttpClient$Version HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers]
@@ -165,10 +166,11 @@
                        When provided, large tool outputs (>2K chars) are stored
                        in heap and replaced with compact summary + heap-id.
                        fetch_result tool is automatically added to tool-schemas.
+     :nudges        — full guardrails under the public nudges name; false disables.
 
    Returns accumulated response string."
-  [& {:keys [model messages tool-map tool-schemas stream-cb provider max-turns max-tokens heap]
-      :or {provider :deepseek max-turns 10 max-tokens 4096}}]
+  [& {:keys [model messages tool-map tool-schemas stream-cb provider max-turns max-tokens heap nudges]
+      :or {provider :deepseek max-turns 10 max-tokens 4096 nudges true}}]
   (if-not stream-cb
     ;; Non-streaming fallback: use regular LLM
     (let [resp (llm/llm model messages tool-schemas :provider provider :max-tokens max-tokens)
@@ -177,96 +179,53 @@
       (or (get msg "content") "No response."))
 
     ;; Streaming path
-    (let [;; Auto-add fetch_result tool if heap is active
-          all-tool-schemas (if heap
-                             (conj (or tool-schemas [])
-                                   {"type" "function"
-                                    "function" {"name" "fetch_result"
-                                                "description" "Get full details from a previously stored tool result. Use this when you need to see specific items from a large search result that was stored in the heap."
-                                                "parameters" {"type" "object"
-                                                              "properties" {"heap_id" {"type" "string"
-                                                                                       "description" "The heap ID reference from a previous tool result (e.g. 3)"}
-                                                                            "query" {"type" "string"
-                                                                                     "description" "Optional: filter results matching this query (e.g. 'Samsung' or 'under 20000')"}}
-                                                              "required" ["heap_id"]}}})
-                             (or tool-schemas []))
-          all-tool-map (if heap
-                         (assoc (or tool-map {})
-                                "fetch_result"
-                                {:execute (fn [args]
-                                            (let [hid (get args "heap_id")
-                                                  q (get args "query")]
-                                              (if q
-                                                (heap/fetch-with-query heap hid q)
-                                                (or (heap/fetch heap hid)
-                                                    (str "Heap entry " hid " not found or expired.")))))
-                                 :name "fetch_result"
-                                 :description "Get full details from a previously stored tool result"})
-                         (or tool-map {}))]
-      (loop [msgs messages turn 0]
+    (let [{:keys [tool-schemas tool-map]} (tl/with-fetch-result tool-schemas tool-map heap)
+          nudge-opts (tl/normalize-nudges nudges nil)]
+      (loop [msgs messages turn 0 nudge-state (gr/make-state)]
         (if (>= turn max-turns)
           "⚠️ Reached max turns. Try a more specific query."
           (let [resp (consume-stream
                       (llm-stream :model (llm/resolve-model model)
-                                  :messages msgs :tools all-tool-schemas
+                                  :messages msgs :tools tool-schemas
                                   :provider provider :max-tokens max-tokens)
                       stream-cb)
                 content (:content resp)
-                calls (:tool-calls resp)
+                cfg (tl/guardrail-config tool-map nudge-opts nudge-state)
+                checked (when nudge-opts (gr/check-response nudge-state cfg resp))
+                calls (if nudge-opts
+                        (mapv :raw (:tool-calls checked))
+                        (:tool-calls resp))
                 _ (log/info :stream-turn turn :content-len (count content) :calls-len (count calls))
                 _ (when (seq calls)
-                    (log/info :stream-tool-call (-> calls first :function :name)))]
-            (if (seq calls)
-              ;; Execute tools, continue loop
-              (let [tool-results
-                    (mapv (fn [tc]
-                            (let [tn (get-in tc [:function :name])
-                                  args-str (get-in tc [:function :arguments])
-                                  args (try (if (string? args-str)
-                                              (json/parse-string args-str false)
-                                              args-str)
-                                            (catch Exception _ {}))
-                                  tool (get all-tool-map tn)
-                                  result (if tool
-                                           (try ((:execute tool) args)
-                                                (catch Exception e
-                                                  (str "Tool error: " (.getMessage e))))
-                                           (str "Unknown tool: " tn))
-                                  result-str (str result)
-                                  ;; Heap storage: if heap active and result > 2K, store externally
-                                  heap-ref (when heap
-                                             (heap/store! heap tn result-str))
-                                  ;; Format tool result for LLM
-                                  fmt-result (if heap-ref
-                                               (str (heap/extract-key-items result-str)
-                                                    "\n\n📦 Stored in heap: " (:heap-id heap-ref)
-                                                    " (" (:size heap-ref) " chars)."
-                                                    " Use fetch_result to get full details.")
-                                               ;; No heap: truncate to 8K as before
-                                               (let [max-out 8000]
-                                                 (if (> (count result-str) max-out)
-                                                   (str (subs result-str 0 max-out)
-                                                        "\n...(truncated)")
-                                                   result-str)))]
-                              {"role" "tool"
-                               "tool_call_id" (:id tc)
-                               "content" fmt-result}))
-                          calls)
-                    ;; Assistant message: nil content if only tool_calls
-                    asst-msg (cond-> {"role" "assistant" "tool_calls"
-                                      (mapv (fn [tc]
-                                              {"id" (:id tc)
-                                               "type" "function"
-                                               "function" {"name" (get-in tc [:function :name])
-                                                           "arguments" (get-in tc [:function :arguments] "")}})
-                                            calls)}
-                               (not (str/blank? content))
-                               (assoc "content" content))]
-                (recur (into (conj msgs asst-msg) tool-results)
-                       (inc turn)))
-
-              ;; No tool calls — final response
-              content)))))))
+                    (log/info :stream-tool-call (gr/tool-call-name (first calls))))]
+            (case (:action checked :disabled)
+              :text content
+              :fatal (str "⚠️ " (:reason checked))
+              :retry (recur (conj msgs (tl/nudge-message (:nudge checked)))
+                            (inc turn)
+                            (:state checked))
+              :step-blocked (recur (conj msgs (tl/nudge-message (:nudge checked)))
+                                   (inc turn)
+                                   (:state checked))
+              (:execute :disabled)
+              (if (seq calls)
+                ;; Execute tools, continue loop
+                (let [normalized-calls (if nudge-opts
+                                         (:tool-calls checked)
+                                         (mapv tl/loose-normalize-tool-call calls))
+                      results (mapv #(tl/execute-tool-call tool-map nil heap %)
+                                    normalized-calls)
+                      nudge-state' (tl/next-state nudge-state nudge-opts results)
+                      tool-results (mapv :message results)
+                      asst-msg (cond-> {"role" "assistant"
+                                        "tool_calls" (mapv tl/raw-call->api calls)}
+                                 (not (str/blank? content))
+                                 (assoc "content" content))]
+                  (recur (into (conj msgs asst-msg) tool-results)
+                         (inc turn)
+                         nudge-state'))
+                ;; No tool calls — final response
+                content))))))))
 
 (comment
   ;; Usage example:

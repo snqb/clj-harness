@@ -138,13 +138,15 @@
      :on-save          — (fn [user-id session]) called after each response
      :context-reminder — auto-inject previous user topics into system prompt (default true)
      :tool-post-process — (fn [tool-name result] => enriched-result) optional
+     :nudges           — Forge-style tool-call guardrails (default true). Use a map
+                         with :required-steps and :terminal-tools, or false to disable.
      :persistence      — SQLite persistence config from clj-harness.session.sqlite/create
                          {:type :sqlite :load fn :save fn}
 
    Returns {:config {...} :pipeline fn :sessions (atom {})}."
   [{:keys [name prompt tools model provider max-turns max-retries pre-hook on-save
-           context-reminder? tool-post-process persistence]
-    :or {provider :deepseek max-turns 10 max-retries 2 context-reminder? true}}]
+           context-reminder? tool-post-process nudges persistence]
+    :or {provider :deepseek max-turns 10 max-retries 2 context-reminder? true nudges true}}]
   (let [resolved-provider (or provider :openrouter)
         resolved-model (or model (if (= resolved-provider :deepseek)
                                    :deepseek-v4-pro
@@ -152,7 +154,7 @@
         pipeline (-> (fn [ctx]
                        (llm-client/core-agent
                         (merge {:model resolved-model :provider resolved-provider} ctx)))
-                     (mw/wrap-tools tools tool-post-process)
+                     (mw/wrap-tools tools tool-post-process nudges)
                      (mw/wrap-retry max-retries)
                      mw/wrap-logging)
         sessions-atom (atom {})
@@ -168,6 +170,7 @@
      :on-save   (or on-save auto-save)
      :context-reminder? context-reminder?
      :tool-post-process tool-post-process
+     :nudges    nudges
      :tools     tools
      :persistence persistence
      :max-turns max-turns
@@ -196,6 +199,7 @@
                    (when model {:model model})
                    (when provider {:provider provider})
                    (when max-turns {:max-turns max-turns})
+                   {:nudges (:nudges bot)}
                    overrides)
         resp ((:pipeline bot) ctx)
         result (or (:content resp) "Sorry, something went wrong.")]
@@ -227,7 +231,8 @@
                   :stream-cb stream-cb
                   :provider (:provider (:config bot))
                   :max-turns (:max-turns bot)
-                  :heap session-heap)]
+                  :heap session-heap
+                  :nudges (:nudges bot))]
       (when result
         (memory/session-add! session "assistant" result)
         (save-session! bot user-id session))

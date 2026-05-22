@@ -8,4 +8,6 @@
         com.github.seancorfield/next.jdbc {:mvn/version "1.3.955"}
         org.xerial/sqlite-jdbc {:mvn/version "3.46.1.3"}}
  :aliases {:run {:main-opts ["-m" "clj-harness.demo"]}
-           :repl {:main-opts ["-r"]}}}
+           :repl {:main-opts ["-r"]}
+           :eval {:extra-paths ["dev"]
+                  :main-opts ["-m" "clj-harness.eval.guardrail-bench"]}}}

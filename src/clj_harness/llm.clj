@@ -62,5 +62,6 @@
         choice (first (get resp "choices"))
         msg (get choice "message")]
     {:content (get msg "content")
+     :reasoning-content (get msg "reasoning_content")
      :tool-calls (get msg "tool_calls")
      :finish (get choice "finish_reason")}))

@@ -12,7 +12,7 @@
   - Headers (#, ##) become <b>bold</b> since Telegram has no heading entity
   - Escape HTML entities BEFORE converting markdown (safe order)
   - Split at 4096 chars respecting HTML tag boundaries
-  - Strips markdown tables (| --- |) — they don't render on Telegram mobile"
+  - Rewrites markdown tables into bullet/key-value lists — tables don't render on Telegram mobile"
   (:require [clojure.string :as str]))
 
 ;; ══════════════════════ HTML ESCAPE ══════════════════════
@@ -24,6 +24,97 @@
       (str/replace "&" "&amp;")
       (str/replace "<" "&lt;")
       (str/replace ">" "&gt;")))
+
+;; ══════════════════════ MARKDOWN TABLES → LISTS ══════════════════════
+
+(defn- pipe-row?
+  "True when a line looks like a Markdown table row."
+  [line]
+  (boolean (re-matches #"\s*\|.*\|\s*" (or line ""))))
+
+(defn- table-cells
+  "Parse a Markdown table row into trimmed cells."
+  [line]
+  (-> line
+      str/trim
+      (str/replace #"^\|" "")
+      (str/replace #"\|$" "")
+      (str/split #"\|")
+      (->> (map str/trim))))
+
+(defn- separator-cell? [cell]
+  (boolean (re-matches #":?-{3,}:?" (str/trim cell))))
+
+(defn- separator-row?
+  "True for Markdown table separator rows like | --- | :---: |."
+  [line]
+  (let [cells (table-cells line)]
+    (and (>= (count cells) 2)
+         (every? separator-cell? cells))))
+
+(defn- markdown-table-block?
+  "True when a contiguous pipe-row block is a real Markdown table."
+  [lines]
+  (and (>= (count lines) 2)
+       (some separator-row? lines)))
+
+(defn- row->bullet [headers row]
+  (let [pairs (->> (map vector headers row)
+                   (keep (fn [[header value]]
+                           (let [header (str/trim (or header ""))
+                                 value (str/trim (or value ""))]
+                             (when-not (str/blank? value)
+                               (if (str/blank? header)
+                                 value
+                                 (str header ": " value)))))))]
+    (str "• " (str/join ", " pairs))))
+
+(defn- table-block->bullets
+  "Convert one Markdown table block into Telegram-friendly bullets."
+  [lines]
+  (let [rows (mapv (comp vec table-cells) lines)
+        sep-idx (first (keep-indexed (fn [idx line]
+                                       (when (separator-row? line) idx))
+                                     lines))
+        headers (if (pos? (or sep-idx 0))
+                  (get rows (dec sep-idx))
+                  [])
+        data-rows (->> rows
+                       (keep-indexed (fn [idx row]
+                                       (when (and (not= idx sep-idx)
+                                                  (or (nil? sep-idx) (> idx sep-idx)))
+                                         row))))
+        bullet-rows (if (seq data-rows)
+                      data-rows
+                      (remove #(every? str/blank? %) rows))]
+    (str/join "\n" (map #(row->bullet headers %) bullet-rows))))
+
+(defn rewrite-markdown-tables
+  "Rewrite Markdown tables into Telegram-friendly bullet/key-value lists.
+
+  Telegram clients don't render Markdown tables; raw pipes create visual noise.
+  This preserves the table data while ensuring outbound Telegram text never
+  contains table blocks. Non-table pipe text is left untouched."
+  [text]
+  (letfn [(flush-block [out block]
+            (cond
+              (empty? block) out
+              (markdown-table-block? block) (conj out (table-block->bullets block))
+              :else (into out block)))]
+    (let [lines (str/split-lines (or text ""))
+          trailing-newline? (str/ends-with? (or text "") "\n")
+          rewritten (loop [remaining lines
+                           out []
+                           block []]
+                      (if-let [line (first remaining)]
+                        (if (pipe-row? line)
+                          (recur (rest remaining) out (conj block line))
+                          (recur (rest remaining)
+                                 (conj (flush-block out block) line)
+                                 []))
+                        (flush-block out block)))]
+      (cond-> (str/join "\n" rewritten)
+        trailing-newline? (str "\n")))))
 
 ;; ══════════════════════ MARKDOWN → TELEGRAM HTML ══════════════════════
 
@@ -52,7 +143,7 @@
 (defn md->html
   "Convert LLM markdown to Telegram-compatible HTML.
 
-  Also STRIPS any markdown tables (| --- |) since they don't render on Telegram.
+  Also rewrites any markdown tables into bullet/key-value lists since Telegram doesn't render tables.
 
   Key insight: headers and inline code need HTML tags, so they must be
   saved before escaping, then restored after. Everything else (**bold**,
@@ -76,9 +167,8 @@
   [^String text]
   (if (str/blank? text)
     text
-    (let [;; Step 0: Strip markdown tables (they don't render on Telegram)
-          no-tables (str/replace text #"(?m)^\|.*\|$" "")
-          clean (str/replace no-tables #"(?m)^\|[\s\-:]+\|$" "")
+    (let [;; Step 0: Rewrite markdown tables (they don't render on Telegram)
+          clean (rewrite-markdown-tables text)
           ;; Step 1: Save inline code before escaping
           [t1 inline-codes] (save-matches clean #"`([^`]+)`"
                                           inline-code-placeholder-prefix)
@@ -136,7 +226,7 @@
    instead of raw markdown while the response is being generated."
   [text]
   (reduce (fn [t [pat repl]] (str/replace t pat repl))
-          (or text "")
+          (rewrite-markdown-tables (or text ""))
           md-strip-patterns))
 
 ;; ══════════════════════ STREAMING PREVIEW ══════════════════════

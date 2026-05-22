@@ -40,6 +40,7 @@
 (def md->html fmt/md->html)
 (def split-message fmt/split-message)
 (def escape-html fmt/escape-html)
+(def rewrite-markdown-tables fmt/rewrite-markdown-tables)
 
 ;; ══════════════════════ HTTP ══════════════════════
 
@@ -87,7 +88,8 @@
    Returns Telegram Message object or nil on failure."
   [chat-id text & {:keys [parse-mode preview reply-to reply_markup]
                    :or {parse-mode "HTML" preview true}}]
-  (let [body (cond-> {"chat_id" (str chat-id) "text" text}
+  (let [safe-text (fmt/rewrite-markdown-tables text)
+        body (cond-> {"chat_id" (str chat-id) "text" safe-text}
                parse-mode (assoc "parse_mode" parse-mode)
                (false? preview) (assoc "disable_web_page_preview" true)
                reply-to (assoc "reply_to_message_id" (str reply-to))
@@ -104,9 +106,10 @@
    Options: :parse-mode (\"HTML\" default), :preview (true default), :reply_markup"
   [chat-id message-id text & {:keys [parse-mode preview reply_markup]
                               :or {parse-mode "HTML" preview true}}]
-  (let [body (cond-> {"chat_id" (str chat-id)
+  (let [safe-text (fmt/rewrite-markdown-tables text)
+        body (cond-> {"chat_id" (str chat-id)
                       "message_id" (str message-id)
-                      "text" text}
+                      "text" safe-text}
                parse-mode (assoc "parse_mode" parse-mode)
                (false? preview) (assoc "disable_web_page_preview" true)
                reply_markup (assoc "reply_markup" reply_markup))]

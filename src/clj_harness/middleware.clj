@@ -8,11 +8,11 @@
    not about the rest of the stack. wrap-tools receives the handler as a parameter
    and never calls llm or core-agent directly."
   (:require
-   [cheshire.core :as json]
    [clojure.tools.logging :as log]
-   [clj-harness.heap :as heap]
+   [clj-harness.guardrails :as gr]
    [clj-harness.infra :as infra :refer [cfg]]
-   [clj-harness.mcp :as mcp]))
+   [clj-harness.mcp :as mcp]
+   [clj-harness.tool-loop :as tl]))
 
 ;; ══════════════════════ TOOL LOOP ══════════════════════
 
@@ -29,9 +29,11 @@
 (defn wrap-tools
   "Middleware: automatic tool calling loop.
 
-   Tool defs:
-     {:name \"search\" :description \"...\" :schema {...} :execute (fn [args] \"result\")}
-     {:mcp true :name \"get_weather\" ...}  ;; auto-resolved from MCPvisor
+   Tool defs look like maps with :name, :description, :schema, and :execute.
+   MCP tools use the same shape plus :mcp true.
+
+   :nudges enables Forge-style full guardrails under a simpler name:
+     {:required-steps [search] :terminal-tools #{answer}}
 
    When :heap is present in ctx, large tool outputs (>2K chars) are stored
    externally and replaced with compact summaries + heap-id references.
@@ -39,85 +41,49 @@
 
    Feeds tool results back to the handler (LLM) until it produces a text response
    or hits max-turns. Returns {:content ... :tool-calls nil} when done."
-  ([handler tools] (wrap-tools handler tools nil))
-  ([handler tools tool-post-process]
-   (let [_tool-map (into {} (map (fn [t] [(get t "name" (:name t)) t]) tools))
+  ([handler tools] (wrap-tools handler tools nil true))
+  ([handler tools tool-post-process] (wrap-tools handler tools tool-post-process true))
+  ([handler tools tool-post-process default-nudges]
+   (let [_tool-map (into {} (map (fn [t] [(tl/tool-name t) t]) tools))
          _tool-schemas (mapv tool->openai-schema tools)]
-     (fn [{:keys [messages max-turns heap] :as ctx}]
+     (fn [{:keys [messages max-turns heap nudges] :as ctx}]
        (let [mt (or max-turns (cfg :agent :max-turns) 10)
-             ;; Auto-add fetch_result when heap is active
-             tool-schemas (if heap
-                            (conj _tool-schemas
-                                  {"type" "function"
-                                   "function" {"name" "fetch_result"
-                                               "description" "Get full details from a previously stored tool result. Use this when you need to see specific items from a large search result that was stored in the heap."
-                                               "parameters" {"type" "object"
-                                                             "properties" {"heap_id" {"type" "string"
-                                                                                      "description" "The heap ID reference from a previous tool result (e.g. 3)"}
-                                                                           "query" {"type" "string"
-                                                                                    "description" "Optional: filter results matching this query"}}
-                                                             "required" ["heap_id"]}}})
-                            _tool-schemas)
-             tool-map (if heap
-                        (assoc _tool-map
-                               "fetch_result"
-                               {:name "fetch_result"
-                                :description "Get full details from a previously stored tool result"
-                                :execute (fn [args]
-                                           (let [hid (get args "heap_id")
-                                                 q (get args "query")]
-                                             (if q
-                                               (heap/fetch-with-query heap hid q)
-                                               (or (heap/fetch heap hid)
-                                                   (str "Heap entry " hid " not found or expired.")))))})
-                        _tool-map)]
-         (loop [msgs messages turn 0]
+             {:keys [tool-schemas tool-map]} (tl/with-fetch-result _tool-schemas _tool-map heap)
+             nudge-opts (tl/infer-nudges (if (contains? ctx :nudges) nudges default-nudges) tools)]
+         (loop [msgs messages turn 0 nudge-state (gr/make-state)]
            (if (>= turn mt)
              {:content (str "⚠️ Reached max turns (" mt "). Try a more specific query.")
               :tool-calls nil}
-             (let [resp (handler (assoc ctx :messages msgs :tools tool-schemas))]
-               (if-let [calls (:tool-calls resp)]
-                 (let [tool-results
-                       (mapv (fn [tc]
-                               (let [tn (get-in tc ["function" "name"])
-                                     args-str (get-in tc ["function" "arguments"])
-                                     args (try (if (string? args-str)
-                                                 (json/parse-string args-str false)
-                                                 args-str)
-                                               (catch Exception _ {}))
-                                     t (get tool-map tn)
-                                     result (if t
-                                              (try ((:execute t) args)
-                                                   (catch Exception e
-                                                     (str "Tool error: " (.getMessage e))))
-                                              (str "Unknown tool: " tn))
-                                     enriched (if tool-post-process
-                                                (try (tool-post-process tn result)
-                                                     (catch Exception _ result))
-                                                result)
-                                     result-str (str enriched)
-                                     ;; Heap storage: if heap active and result > 2K chars
-                                     heap-ref (when heap
-                                                (heap/store! heap tn result-str))
-                                     fmt-result (if heap-ref
-                                                  (str (heap/extract-key-items result-str)
-                                                       "\n\n📦 Stored in heap: " (:heap-id heap-ref)
-                                                       " (" (:size heap-ref) " chars)."
-                                                       " Use fetch_result to get full details.")
-                                                  ;; No heap: truncate to 8K as before
-                                                  (let [max-out (or (cfg :agent :max-tool-output) 8000)]
-                                                    (if (> (count result-str) max-out)
-                                                      (str (subs result-str 0 max-out)
-                                                           "\n...(truncated)")
-                                                      result-str)))]
-                                 {"role" "tool"
-                                  "tool_call_id" (get tc "id")
-                                  "content" fmt-result}))
-                             calls)]
-                   (recur (into (conj msgs {"role" "assistant" "content" (:content resp) "tool_calls" calls})
-                                tool-results)
-                          (inc turn)))
-                 resp)))))))))
+             (let [resp (handler (assoc ctx :messages msgs :tools tool-schemas))
+                   cfg (tl/guardrail-config tool-map nudge-opts nudge-state)
+                   checked (when nudge-opts (gr/check-response nudge-state cfg resp))]
+               (if (#{:retry :step-blocked} (:action checked))
+                 (recur (conj msgs (tl/nudge-message (:nudge checked)))
+                        (inc turn)
+                        (:state checked))
+                 (case (:action checked :disabled)
+                   :text resp
+                   :fatal {:content (str "⚠️ " (:reason checked)) :tool-calls nil}
+                   (:execute :disabled)
+                   (if-let [calls (if nudge-opts
+                                    (mapv :raw (:tool-calls checked))
+                                    (:tool-calls resp))]
+                     (let [normalized-calls (if nudge-opts
+                                              (:tool-calls checked)
+                                              (mapv tl/loose-normalize-tool-call calls))
+                           results (mapv #(tl/execute-tool-call tool-map tool-post-process heap %)
+                                         normalized-calls)
+                           nudge-state' (tl/next-state nudge-state nudge-opts results)
+                           tool-results (mapv :message results)]
+                       (recur (into (conj msgs (cond-> {"role" "assistant"
+                                                        "content" (:content resp)
+                                                        "tool_calls" calls}
+                                                 (:reasoning-content resp)
+                                                 (assoc "reasoning_content" (:reasoning-content resp))))
+                                    tool-results)
+                              (inc turn)
+                              nudge-state'))
+                     resp)))))))))))
 
 ;; ══════════════════════ RETRY ══════════════════════
 
