@@ -14,7 +14,8 @@
   (:require [clj-harness.telegram.format :as fmt]
             [cheshire.core :as json]
             [clojure.string :as str]
-            [clojure.tools.logging :as log])
+            [clojure.tools.logging :as log]
+            [clj-harness.observe :as observe])
   (:import [java.net URI]
            [java.net.http HttpClient HttpClient$Version HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers]
            [java.time Duration]))
@@ -233,10 +234,10 @@
         :user-id    (get user "id")
         :first-name (get user "first_name" "друг")
         :text       (get msg "text")
-        :message-id (get msg "message_id")}
+        :message-id (get msg "message_id")
         loc
         (assoc :location {:lat (get loc "latitude")
-                          :lon (get loc "longitude")})))))
+                          :lon (get loc "longitude")})}))))
 
 (defn poll-loop
   "Start polling loop. Calls handler-fn for each message.
@@ -297,8 +298,12 @@
   (let [call-count (atom 0)]
     (fn [{:keys [chat-id user-id first-name text location] :as msg}]
       (let [call-n (swap! call-count inc)
-            text (str/trim (or text ""))]
+            text (str/trim (or text ""))
+            dialogue-id (str chat-id "-" (System/currentTimeMillis))]
         (log/info :handler-called :count call-n :chat-id chat-id :user first-name :text (subs text 0 (min 60 (count text))) :has-location (boolean location))
+        (observe/record!
+         {:type :msg-in :dialogue-id dialogue-id
+          :user first-name :text text})
         (try
           (cond
             ;; Location shared
@@ -328,10 +333,19 @@
             ;; Agent
             agent-fn
             (if streaming?
-              ;; Streaming mode: placeholder → block-buffered plain previews → final HTML
+              ;; Streaming mode: status → block-buffered previews → final HTML
               (let [txt (volatile! "")
                     msg-id (volatile! nil)
                     last-preview (volatile! "")
+                    status-cb (fn [status-text]
+                                (when-let [mid @msg-id]
+                                  (try
+                                    (vreset! txt "")
+                                    (vreset! last-preview status-text)
+                                    (edit-message chat-id mid status-text
+                                                  :parse-mode nil :preview false)
+                                    (catch Exception e
+                                      (log/warn e :stream-status-edit-fail :msg-id mid)))))
                     stream-cb (fn [delta]
                                 (vswap! txt str delta)
                                 (when-let [mid @msg-id]
@@ -343,12 +357,12 @@
                                         (vreset! last-preview preview)))
                                     (catch Exception e
                                       (log/warn e :stream-edit-fail :msg-id mid :text-len (count @txt))))))
-                    placeholder (send-message chat-id "⏳ Думаю…"
+                    placeholder (send-message chat-id "🧠 Анализирую запрос…"
                                               :parse-mode nil)
                     mid-val (get-in placeholder ["result" "message_id"])]
                 (log/info :stream-placeholder-sent :msg-id mid-val)
                 (vreset! msg-id mid-val)
-                (let [result (agent-fn user-id text {:stream-cb stream-cb})
+                (let [result (agent-fn user-id text {:stream-cb stream-cb :status-cb status-cb})
                       final-text (or result @txt)]
                   ;; Final edit renders full Markdown as Telegram HTML.
                   (if result
@@ -364,12 +378,20 @@
                     (try
                       (post-stream chat-id user-id @msg-id (str final-text))
                       (catch Exception e
-                        (log/warn e :post-stream-error))))))
+                        (log/warn e :post-stream-error))))
+                  (observe/record!
+                   {:type :msg-out :dialogue-id dialogue-id
+                    :text-len (count (str final-text))})))
               ;; Non-streaming fallback
               (do
-                (send-typing chat-id)
-                (let [resp (agent-fn user-id text)]
-                  (when resp (send-md chat-id resp)))))
+                (let [t0 (System/currentTimeMillis)
+                      resp (agent-fn user-id text)
+                      elapsed (- (System/currentTimeMillis) t0)]
+                  (when resp
+                    (send-md chat-id resp)
+                    (observe/record!
+                     {:type :msg-out :dialogue-id dialogue-id
+                      :text-len (count resp) :total-elapsed elapsed})))))
 
             :else
             (log/warn :no-handler :text text))

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>clj-harness · observe</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d2991d;
+    --purple: #a371f7;
+    --cyan: #39c5cf;
+    --font: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow: hidden;
+    height: 100vh;
+    display: flex; flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 24px;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 14px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .stat { display: flex; flex-direction: column; align-items: center; }
+  .stat .val { font-size: 18px; font-weight: 700; }
+  .stat .lbl { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat .val.green { color: var(--green); }
+  .stat .val.red { color: var(--red); }
+  .stat .val.yellow { color: var(--yellow); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .dot.dead { background: var(--red); }
+  #status { font-size: 11px; color: var(--dim); }
+
+  /* ── Feed ── */
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+  .event {
+    display: flex; gap: 8px;
+    padding: 3px 16px;
+    border-left: 2px solid transparent;
+    align-items: baseline;
+    min-height: 22px;
+  }
+  .event:hover { background: rgba(88,166,255,0.04); }
+  .ev-time { color: var(--dim); font-size: 11px; white-space: nowrap; min-width: 70px; }
+  .ev-type { font-weight: 600; min-width: 56px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .ev-body { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ev-body:hover { white-space: normal; }
+  .type-dialogue { border-left-color: var(--purple); }
+  .type-msg-in    { border-left-color: var(--accent); }
+  .type-msg-out   { border-left-color: var(--green); }
+  .type-turn       { border-left-color: var(--cyan); }
+  .type-tool       { border-left-color: var(--yellow); }
+  .type-nudge      { border-left-color: var(--yellow); }
+  .type-error      { border-left-color: var(--red); }
+
+  .t-ok   { color: var(--green); }
+  .t-fail { color: var(--red); }
+  .t-dim  { color: var(--dim); }
+
+  /* ── Scrollbar ── */
+  main::-webkit-scrollbar { width: 6px; }
+  main::-webkit-scrollbar-track { background: transparent; }
+  main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Footer ── */
+  footer {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 4px 16px;
+    font-size: 11px;
+    color: var(--dim);
+    display: flex; gap: 16px;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>● clj-harness</h1>
+  <div class="stat"><span class="val" id="s-dialogues">-</span><span class="lbl">dialogues</span></div>
+  <div class="stat"><span class="val green" id="s-tools-ok">-</span><span class="lbl">tools ok</span></div>
+  <div class="stat"><span class="val red" id="s-tools-fail">-</span><span class="lbl">tools fail</span></div>
+  <div class="stat"><span class="val yellow" id="s-nudges">-</span><span class="lbl">nudges</span></div>
+  <div class="stat"><span class="val red" id="s-errors">-</span><span class="lbl">errors</span></div>
+  <span id="status">connecting…</span>
+</header>
+
+<main id="feed"></main>
+
+<footer>
+  <span id="f-events">events: -</span>
+  <span>|</span>
+  <span>buffer: 2000</span>
+</footer>
+
+<script>
+const feed = document.getElementById('feed');
+const status = document.getElementById('status');
+const maxLines = 500;
+let autoScroll = true;
+
+feed.addEventListener('scroll', () => {
+  autoScroll = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 40;
+});
+
+function fmtTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString('en-GB', {hour12: false});
+}
+
+function fmtBody(e) {
+  switch (e.type) {
+    case 'dialogue': return `<span class="t-dim">${esc(e.user || '?')}</span> ${esc(e.text || '')}`;
+    case 'msg-in':   return `<span class="t-dim">${esc(e.user || '?')}</span> ${esc(e.text || '')}`;
+    case 'msg-out':  return `<span class="t-ok">sent</span> <span class="t-dim">${e['text-len'] || 0} chars · ${e['total-elapsed'] || 0}ms</span>`;
+    case 'turn':     return `turn ${e.n || '?'} <span class="t-dim">${esc(e.kind || 'llm')}</span>`;
+    case 'tool':     return `<span class="${e.ok ? 't-ok' : 't-fail'}">${esc(e.name || '?')}</span> <span class="t-dim">${e.elapsed || 0}ms</span> ${e.args ? esc(trunc(JSON.stringify(e.args),120)) : ''}`;
+    case 'nudge':    return `<span class="t-dim">${esc(e.kind || '?')}</span> ${esc(e.reason || '')}`;
+    case 'error':    return `<span class="t-fail">${esc(e.error || '?')}</span>`;
+    default:         return esc(JSON.stringify(e));
+  }
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function trunc(s, n) {
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+function addEvent(e) {
+  const div = document.createElement('div');
+  div.className = 'event type-' + (e.type || 'unknown');
+  div.innerHTML = `<span class="ev-time">${fmtTime(e.ts)}</span>`
+    + `<span class="ev-type">${esc(e.type)}</span>`
+    + `<span class="ev-body">${fmtBody(e)}</span>`;
+  feed.appendChild(div);
+
+  // Trim old lines
+  while (feed.children.length > maxLines) {
+    feed.removeChild(feed.firstChild);
+  }
+
+  if (autoScroll) {
+    feed.scrollTop = feed.scrollHeight;
+  }
+}
+
+function updateStats(s) {
+  document.getElementById('s-dialogues').textContent = s.dialogues || 0;
+  document.getElementById('s-tools-ok').textContent = (s.tools && s.tools.ok) || 0;
+  document.getElementById('s-tools-fail').textContent = (s.tools && s.tools.fail) || 0;
+  document.getElementById('s-nudges').textContent = s.nudges || 0;
+  document.getElementById('s-errors').textContent = s.errors || 0;
+  document.getElementById('f-events').textContent = 'events: ' + (s.events || 0);
+}
+
+// ── SSE stream ──
+function connectSSE() {
+  status.textContent = 'connecting…';
+  const es = new EventSource('/api/stream');
+
+  es.onopen = () => {
+    status.textContent = 'live';
+  };
+
+  es.onmessage = (msg) => {
+    try {
+      const e = JSON.parse(msg.data);
+      addEvent(e);
+    } catch (_) {}
+  };
+
+  es.onerror = () => {
+    status.textContent = 'reconnecting…';
+    es.close();
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+// ── Initial load ──
+async function init() {
+  // Load initial events
+  try {
+    const r = await fetch('/api/events?n=100');
+    const events = await r.json();
+    for (const e of events) addEvent(e);
+  } catch (_) {}
+
+  // Load stats
+  try {
+    const r = await fetch('/api/stats');
+    updateStats(await r.json());
+  } catch (_) {}
+
+  // Start live feed
+  connectSSE();
+
+  // Refresh stats every 5s
+  setInterval(async () => {
+    try {
+      const r = await fetch('/api/stats');
+      updateStats(await r.json());
+    } catch (_) {}
+  }, 5000);
+}
+
+init();
+</script>
+</body>
+</html>

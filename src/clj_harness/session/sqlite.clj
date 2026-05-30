@@ -52,9 +52,9 @@
      :load (fn [bot-id user-id]
              (try
                (let [row (jdbc/execute-one! ds
-                           ["SELECT messages_json FROM sessions WHERE bot_id = ? AND user_id = ?"
-                            bot-id user-id]
-                           {:builder-fn as-unqualified-lower-maps})]
+                                            ["SELECT messages_json FROM sessions WHERE bot_id = ? AND user_id = ?"
+                                             bot-id user-id]
+                                            {:builder-fn as-unqualified-lower-maps})]
                  (if row
                    (json/parse-string (:messages_json row) false)
                    []))
@@ -65,10 +65,10 @@
              (try
                (let [json-str (json/generate-string messages)]
                  (jdbc/execute! ds
-                   ["INSERT INTO sessions (bot_id, user_id, messages_json, updated_at)
+                                ["INSERT INTO sessions (bot_id, user_id, messages_json, updated_at)
                      VALUES (?, ?, ?, unixepoch())
                      ON CONFLICT(bot_id, user_id)
                      DO UPDATE SET messages_json = ?, updated_at = unixepoch()"
-                    bot-id user-id json-str json-str]))
+                                 bot-id user-id json-str json-str]))
                (catch Exception e
                  (log/error e :session-save-error :bot-id bot-id :user-id user-id))))}))

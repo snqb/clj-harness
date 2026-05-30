@@ -106,7 +106,6 @@
   (let [reply_markup (when reset-button? (tg/reset-keyboard))]
     (go
       (try
-        (tg/send-typing chat-id)
         (let [placeholder-msg (tg/send-message chat-id placeholder
                                                :parse-mode parse-mode
                                                :preview false)
@@ -186,11 +185,10 @@
 
 (defn send-response
   "Send a complete response (non-streaming convenience).
-   Shows typing, then sends formatted HTML.
+   Sends formatted HTML.
    Options:
      :reply_markup  — passed through to send-md
      :reset-button?  — attach '🔄 Новый диалог' keyboard to response"
   [chat-id response-text & {:keys [reply_markup reset-button?]}]
   (let [markup (or reply_markup (when reset-button? (tg/reset-keyboard)))]
-    (tg/send-typing chat-id)
     (tg/send-md chat-id response-text :reply_markup markup)))

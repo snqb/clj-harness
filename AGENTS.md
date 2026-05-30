@@ -1,7 +1,7 @@
 <!-- Updated: 2026-05-21 -->
 # clj-harness
 
-> Generic Clojure agent harness: middleware-based LLM + tools framework with OpenRouter/DeepSeek, MCP/direct tools, per-user sessions, streaming, Telegram helpers, SQLite persistence, and optional heap storage for large tool outputs. Current: `v2.2.0`. Defaults: `deepseek` provider + `deepseek-v4-pro` model.
+> Generic Clojure agent harness: middleware-based LLM + tools framework with OpenRouter/DeepSeek, MCP/direct tools, per-user sessions, streaming, Telegram helpers, SQLite persistence, optional heap storage for large tool outputs, and an embedded observability dashboard. Current: `v2.3.0`. Defaults: `deepseek` provider + `deepseek-v4-pro` model.
 
 ## Architecture
 
@@ -41,6 +41,8 @@ create-bot → handle-message → prepare messages → middleware pipeline → L
 | `src/clj_harness/session/*.clj` | In-memory session atom helpers + SQLite persistence config. |
 | `src/clj_harness/telegram*.clj` | Telegram Bot API, Markdown→HTML, block-buffered streaming previews, keyboards/inline markup. |
 | `src/clj_harness/tools/*.clj` | Shell tool factory and Google Sheets booking tool via gcloud ADC. |
+| `src/clj_harness/observe.clj` | Ring-buffer event store for the observability panel. Zero deps. |
+| `src/clj_harness/dashboard.clj` | Embedded JDK HttpServer serving a live web dashboard on a configurable port. |
 | `src/clj_harness/skills.clj` | Prompt skill/design-system loader from EDN resources. |
 
 ## Public Bot API
@@ -77,6 +79,7 @@ Bot options to remember:
 | `:context-reminder?` | true | Adds recent user topics to prompt. |
 | `:tool-post-process` | nil | `(fn [tool-name result] => enriched-result)` before truncation. |
 | `:nudges` | true | Full guardrail stack under the friendly name: validation/rescue/retry nudges by default; pass `{:required-steps [...] :terminal-tools #{...}}` for step enforcement, or `false` to disable. |
+| `:dashboard` | nil | Embedded observability panel. Pass `{:port 8089}` to enable, or `false`/nil to disable. |
 
 ## Tool Modes
 
@@ -106,6 +109,32 @@ Shell tools:
   "python3 lalafo_search.py --q='{{query}}' --max={{max}}"
   {:query :string :max :number})
 ```
+
+## Observability Dashboard
+
+Enable an embedded web dashboard with `:dashboard {:port 8089}`:
+
+```clojure
+(def bot
+  (h/create-bot
+    {:name "mybot"
+     :prompt "..."
+     :tools [...]
+     :dashboard {:port 8089}}))
+```
+
+Open `http://localhost:8089` — single-page panel with:
+- **Live event feed** — color-coded streaming log of msg-in, msg-out, tool calls, nudges, errors
+- **Stats bar** — dialogue count, tool success/fail ratio, nudge count, error count
+- **Zero new dependencies** — uses JDK's built-in `com.sun.net.httpserver`
+
+Events are recorded at key points in middleware, stream, and Telegram layers:
+- `:msg-in` / `:msg-out` — per-dialogue entry/exit with timing
+- `:tool` — name, ok?/fail, elapsed ms per tool call
+- `:nudge` — retry/step-blocked with reason
+- `:error` — fatal errors
+
+All buffered in a ring buffer (2000 events, configurable via `observe/max-events`).
 
 ## Nudges / Guardrails
 
@@ -172,7 +201,7 @@ clojure-lsp format --filenames src/clj_harness/core.clj
 clojure-lsp diagnostics --filenames src/clj_harness/core.clj
 
 # Whole project smoke
-clojure -M -e '(doseq [n (quote [clj-harness.core clj-harness.guardrails clj-harness.stream clj-harness.telegram])] (require n)) (println :ok)'
+clojure -M -e '(doseq [n (quote [clj-harness.core clj-harness.guardrails clj-harness.stream clj-harness.telegram clj-harness.observe clj-harness.dashboard])] (require n)) (println :ok)'
 
 # Guardrail/nudges deterministic benchmark
 clojure -M:eval

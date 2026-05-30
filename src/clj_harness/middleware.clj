@@ -9,9 +9,13 @@
    and never calls llm or core-agent directly."
   (:require
    [clojure.tools.logging :as log]
+   [clojure.core.async :refer [chan sliding-buffer put! close!]]
+   [clj-harness.agent-loop :as aloop]
+   [clj-harness.effects :as fx]
    [clj-harness.guardrails :as gr]
    [clj-harness.infra :as infra :refer [cfg]]
    [clj-harness.mcp :as mcp]
+   [clj-harness.observe :as observe]
    [clj-harness.tool-loop :as tl]))
 
 ;; ══════════════════════ TOOL LOOP ══════════════════════
@@ -58,12 +62,22 @@
                    cfg (tl/guardrail-config tool-map nudge-opts nudge-state)
                    checked (when nudge-opts (gr/check-response nudge-state cfg resp))]
                (if (#{:retry :step-blocked} (:action checked))
-                 (recur (conj msgs (tl/nudge-message (:nudge checked)))
-                        (inc turn)
-                        (:state checked))
+                 (do
+                   (observe/record!
+                    {:type :nudge :dialogue-id (:dialogue-id ctx)
+                     :turn turn
+                     :kind (name (:action checked))
+                     :reason (:nudge checked)})
+                   (recur (conj msgs (tl/nudge-message (:nudge checked)))
+                          (inc turn)
+                          (:state checked)))
                  (case (:action checked :disabled)
                    :text resp
-                   :fatal {:content (str "⚠️ " (:reason checked)) :tool-calls nil}
+                   :fatal (do
+                            (observe/record!
+                             {:type :error :dialogue-id (:dialogue-id ctx)
+                              :turn turn :error (str (:reason checked))})
+                            {:content (str "⚠️ " (:reason checked)) :tool-calls nil})
                    (:execute :disabled)
                    (if-let [calls (if nudge-opts
                                     (mapv :raw (:tool-calls checked))
@@ -71,7 +85,19 @@
                      (let [normalized-calls (if nudge-opts
                                               (:tool-calls checked)
                                               (mapv tl/loose-normalize-tool-call calls))
-                           results (mapv #(tl/execute-tool-call tool-map tool-post-process heap %)
+                           results (mapv (fn [call]
+                                           (let [t0 (System/currentTimeMillis)
+                                                 r (tl/execute-tool-call tool-map tool-post-process heap call)
+                                                 elapsed (- (System/currentTimeMillis) t0)]
+                                             (observe/record!
+                                              {:type :tool :dialogue-id (:dialogue-id ctx)
+                                               :turn turn
+                                               :name (tl/tool-name call)
+                                               :ok? (if (map? (:message r))
+                                                      (not (:error (:message r)))
+                                                      true)
+                                               :elapsed elapsed})
+                                             r))
                                          normalized-calls)
                            nudge-state' (tl/next-state nudge-state nudge-opts results)
                            tool-results (mapv :message results)]
@@ -120,3 +146,67 @@
                 :finish (:finish resp)
                 :elapsed (- (System/currentTimeMillis) t0))
       resp)))
+
+;; ══════════════════════ EFFECT-DRIVEN TOOL LOOP (v2) ══════════════════════
+
+(defn wrap-tools-v2
+  "Middleware: effect-driven tool calling loop (experimental).
+
+   Uses the pure state machine from clj-harness.agent-loop instead of
+   the imperative loop/recur in wrap-tools. Tool execution and LLM calls
+   are emitted as effect descriptions and interpreted by clj-harness.effects.
+
+   Benefits over wrap-tools:
+     - Pure state machine is testable without mocking
+     - Event bus (events> channel) for streaming/observability
+     - Same tool-loop semantics (nudges, max-turns, heap)
+
+   Opt-in via create-bot {:effects? true}."
+  ([handler tools] (wrap-tools-v2 handler tools nil true))
+  ([handler tools tool-post-process] (wrap-tools-v2 handler tools tool-post-process true))
+  ([handler tools tool-post-process default-nudges]
+   (let [_tool-map (into {} (map (fn [t] [(tl/tool-name t) t]) tools))
+         _tool-schemas (mapv tool->openai-schema tools)
+         ;; Resolve defaults by calling handler once with empty messages
+         ;; to see what model/provider it uses
+         dummy-resp (try (handler {:messages [] :tools _tool-schemas})
+                         (catch Exception _ {:content "" :tool-calls nil}))]
+     (fn [{:keys [messages max-turns heap nudges events>] :as ctx}]
+       (let [mt (or max-turns (cfg :agent :max-turns) 10)
+             {:keys [tool-schemas tool-map]} (tl/with-fetch-result _tool-schemas _tool-map heap)
+             nudge-opts (tl/infer-nudges (if (contains? ctx :nudges) nudges default-nudges) tools)
+             own-events> (chan (sliding-buffer 64))
+             events> (or events> own-events>)
+             ;; Resolve model from ctx or config
+             model (or (:model ctx)
+                       (cfg :agent :model)
+                       :deepseek-v4-pro)
+             provider (or (:provider ctx)
+                          (cfg :agent :provider)
+                          :deepseek)
+             ;; LLM wrapper — delegates to inner handler
+             llm-fn (fn [model-key msgs ts]
+                      (handler (assoc ctx
+                                      :messages msgs
+                                      :tools ts
+                                      :model model-key
+                                      :provider provider)))
+             env {:llm-fn llm-fn
+                  :tool-map tool-map
+                  :tool-post-process tool-post-process
+                  :heap heap
+                  :events> events>
+                  :abort-signal (:abort-signal ctx)}
+             initial-state (aloop/make-state
+                            {:messages messages
+                             :tool-schemas tool-schemas
+                             :tool-map tool-map
+                             :max-turns mt
+                             :model model
+                             :provider provider
+                             :nudge-opts nudge-opts
+                             :max-tool-output (or (cfg :agent :max-tool-output) 8000)})
+             result (aloop/run env initial-state)]
+         (when-not (:events> ctx)
+           (close! events>))
+         result)))))

@@ -111,24 +111,40 @@
      :args (if (:ok? parsed) (:args parsed) {})
      :raw tc}))
 
-(defn execute-tool-call [tool-map tool-post-process heap-atom tool-call]
-  (let [{:keys [id name args]} tool-call
-        tool (get tool-map name)
-        result (if tool
-                 (try ((:execute tool) args)
-                      (catch Exception e
-                        {:ok? false :content (str "Tool error: " (.getMessage e))}))
-                 {:ok? false :content (str "Unknown tool: " name)})
-        enriched (if tool-post-process
-                   (try (tool-post-process name result)
-                        (catch Exception _ result))
-                   result)
-        result-str (str (result-content enriched))]
-    {:tool name
-     :ok? (boolean (and tool (result-ok? enriched)))
-     :message {"role" "tool"
-               "tool_call_id" id
-               "content" (format-tool-output heap-atom name result-str)}}))
+(defn execute-tool-call
+  "Execute a tool call. Supports two tool signatures:
+     (fn [args]) -> result              ;; legacy (1 arity)
+     (fn [args abort-signal on-update]) -> result  ;; new (3 arity)
+   abort-signal: atom, set to true to cancel
+   on-update: (fn [partial]) for progress callbacks"
+  ([tool-map tool-post-process heap-atom tool-call]
+   (execute-tool-call tool-map tool-post-process heap-atom tool-call nil nil))
+  ([tool-map tool-post-process heap-atom tool-call abort-signal on-update]
+   (let [{:keys [id name args]} tool-call
+         tool (get tool-map name)
+         execute-fn (:execute tool)
+         result (if tool
+                  (try
+                    ;; Try 3-arg first, fall back to 1-arg
+                    (let [r (if (and abort-signal on-update)
+                              (try (execute-fn args abort-signal on-update)
+                                   (catch clojure.lang.ArityException _
+                                     (execute-fn args)))
+                              (execute-fn args))]
+                      r)
+                    (catch Exception e
+                      {:ok? false :content (str "Tool error: " (.getMessage e))}))
+                  {:ok? false :content (str "Unknown tool: " name)})
+         enriched (if tool-post-process
+                    (try (tool-post-process name result)
+                         (catch Exception _ result))
+                    result)
+         result-str (str (result-content enriched))]
+     {:tool name
+      :ok? (boolean (and tool (result-ok? enriched)))
+      :message {"role" "tool"
+                "tool_call_id" id
+                "content" (format-tool-output heap-atom name result-str)}})))
 
 (defn next-state [nudge-state nudge-opts results]
   (if nudge-opts

@@ -8,11 +8,13 @@
    [clojure.core.async :refer [chan close! >!!]]
    [clojure.tools.logging :as log]
    [clj-harness.compact :as compact]
+   [clj-harness.dashboard :as dashboard]
    [clj-harness.heap :as heap]
    [clj-harness.infra :as infra]
    [clj-harness.llm :as llm-client]
    [clj-harness.mcp :as mcp]
    [clj-harness.middleware :as mw]
+   [clj-harness.observe :as observe]
    [clj-harness.session.memory :as memory]
    [clj-harness.stream :as stream]
    [clj-harness.tools.shell :as shell-tools]))
@@ -134,6 +136,7 @@
      :provider    — :deepseek (default) or :openrouter
      :max-turns   — max tool-calling iterations (default 10)
      :max-retries — LLM call retries on failure (default 2)
+     :effects?    — use effect-driven agent loop (experimental, default false)
      :pre-hook         — (fn [user-id text session] => extra-system-prompt-string)
      :on-save          — (fn [user-id session]) called after each response
      :context-reminder — auto-inject previous user topics into system prompt (default true)
@@ -145,8 +148,8 @@
 
    Returns {:config {...} :pipeline fn :sessions (atom {})}."
   [{:keys [name prompt tools model provider max-turns max-retries pre-hook on-save
-           context-reminder? tool-post-process nudges persistence]
-    :or {provider :deepseek max-turns 10 max-retries 2 context-reminder? true nudges true}}]
+           context-reminder? tool-post-process nudges persistence dashboard effects?]
+    :or {provider :deepseek max-turns 10 max-retries 2 context-reminder? true nudges true effects? false}}]
   (let [resolved-provider (or provider :openrouter)
         resolved-model (or model (if (= resolved-provider :deepseek)
                                    :deepseek-v4-pro
@@ -154,7 +157,7 @@
         pipeline (-> (fn [ctx]
                        (llm-client/core-agent
                         (merge {:model resolved-model :provider resolved-provider} ctx)))
-                     (mw/wrap-tools tools tool-post-process nudges)
+                     ((if effects? mw/wrap-tools-v2 mw/wrap-tools) tools tool-post-process nudges)
                      (mw/wrap-retry max-retries)
                      mw/wrap-logging)
         sessions-atom (atom {})
@@ -162,7 +165,9 @@
                     (let [{:keys [save]} persistence
                           bot-name name]
                       (fn [user-id session]
-                        (save bot-name user-id (get @session "messages" [])))))]
+                        (save bot-name user-id (get @session "messages" [])))))
+        _ (when dashboard
+            (dashboard/start! (if (map? dashboard) dashboard {})))]
     {:config    {:name name :prompt prompt :tools (count tools)
                  :model resolved-model :provider resolved-provider}
      :pipeline  pipeline
@@ -174,6 +179,7 @@
      :tools     tools
      :persistence persistence
      :max-turns max-turns
+     :dashboard dashboard
      :sessions  sessions-atom}))
 
 ;; ══════════════════════ MESSAGE HANDLING ══════════════════════
@@ -189,20 +195,28 @@
 
    Override options: :model :provider :max-turns"
   [bot user-id text & {:keys [model provider max-turns] :as overrides}]
-  (let [session (get-or-create-session bot user-id)
+  (let [dialogue-id (str user-id "-" (System/currentTimeMillis))
+        _ (observe/record! {:type :msg-in :dialogue-id dialogue-id :user user-id :text text})
+        session (get-or-create-session bot user-id)
         _ (memory/session-add! session "user" text)
         msgs (prepare-messages bot user-id text session)
         ;; Extract heap from session data if present
         session-heap (get-in @session ["data" "heap"])
-        ctx (merge {:messages msgs :max-turns (:max-turns bot)}
+        t0 (System/currentTimeMillis)
+        ctx (merge {:messages msgs
+                     :max-turns (:max-turns bot)
+                     :model (or model (-> bot :config :model))
+                     :provider (or provider (-> bot :config :provider))}
                    (when session-heap {:heap session-heap})
-                   (when model {:model model})
-                   (when provider {:provider provider})
                    (when max-turns {:max-turns max-turns})
                    {:nudges (:nudges bot)}
+                   {:dialogue-id dialogue-id}
                    overrides)
         resp ((:pipeline bot) ctx)
         result (or (:content resp) "Sorry, something went wrong.")]
+    (observe/record!
+     {:type :msg-out :dialogue-id dialogue-id
+      :text-len (count result) :total-elapsed (- (System/currentTimeMillis) t0)})
     (memory/session-add! session "assistant" result)
     (save-session! bot user-id session)
     ;; GC expired heap entries
@@ -212,27 +226,37 @@
 (defn handle-message-stream!
   "Like handle-message but streams the final response through stream-cb.
    stream-cb: (fn [text-chunk]) called with incremental text.
+   Options:
+     :status-cb — (fn [status-text]) called for phase changes (Russian status).
    Uses stream-agent for the agent loop (tools supported).
 
    If session has a :heap atom, it's passed to stream-agent for tool output storage.
 
    Returns accumulated full text, or nil on error."
-  [bot user-id text stream-cb]
+  [bot user-id text stream-cb & {:keys [status-cb]}]
   (try
-    (let [session (get-or-create-session bot user-id)
+    (let [dialogue-id (str user-id "-" (System/currentTimeMillis))
+          _ (observe/record! {:type :msg-in :dialogue-id dialogue-id :user user-id :text text})
+          session (get-or-create-session bot user-id)
           _ (memory/session-add! session "user" text)
           msgs (prepare-messages bot user-id text session)
           session-heap (get-in @session ["data" "heap"])
+          t0 (System/currentTimeMillis)
           result (stream/stream-agent
                   :model (:model (:config bot))
                   :messages msgs
                   :tool-map (tool-map (:tools bot))
                   :tool-schemas (tool-schemas (:tools bot))
                   :stream-cb stream-cb
+                  :status-cb status-cb
                   :provider (:provider (:config bot))
                   :max-turns (:max-turns bot)
                   :heap session-heap
-                  :nudges (:nudges bot))]
+                  :nudges (:nudges bot)
+                  :dialogue-id dialogue-id)]
+      (observe/record!
+       {:type :msg-out :dialogue-id dialogue-id
+        :text-len (count (or result "")) :total-elapsed (- (System/currentTimeMillis) t0)})
       (when result
         (memory/session-add! session "assistant" result)
         (save-session! bot user-id session))

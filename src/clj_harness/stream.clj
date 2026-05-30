@@ -13,6 +13,7 @@
    [clj-harness.guardrails :as gr]
    [clj-harness.infra :as infra]
    [clj-harness.llm :as llm]
+   [clj-harness.observe :as observe]
    [clj-harness.tool-loop :as tl])
   (:import
    [java.net URI]
@@ -150,6 +151,19 @@
        :tool-calls (when (seq accumulated-tc) accumulated-tc)
        :finish (or @finish-reason "stop")})))
 
+;; ══════════════════════ STATUS MESSAGES ══════════════════════
+
+(defn- status-text
+  "Generate Russian status message for agent phases."
+  [phase & {:keys [tool-name]}]
+  (case phase
+    :starting   "🧠 Анализирую запрос..."
+    :tool-call  (str "🔧 Выполняю " (or tool-name "инструмент") "...")
+    :after-tool "📊 Обрабатываю результаты..."
+    :max-turns  "⚠️ Слишком много шагов. Формирую ответ..."
+    :retry      "⚠️ Перепроверяю..."
+    "🔄 Обрабатываю..."))
+
 (defn stream-agent
   "Run agent with streaming LLM calls. Handles tool execution loop.
 
@@ -159,6 +173,7 @@
      :tool-map      — map of tool-name → {:execute (fn [args] ...)}
      :tool-schemas  — OpenAI-format tool definitions
      :stream-cb     — (fn [text-fragment]) called for each content delta
+     :status-cb     — (fn [status-text]) called for phase changes (Russian status)
      :provider      — :deepseek (default) or :openrouter
      :max-turns     — max tool-calling iterations (default 10)
      :max-tokens    — max tokens per LLM call (default 4096)
@@ -169,7 +184,7 @@
      :nudges        — full guardrails under the public nudges name; false disables.
 
    Returns accumulated response string."
-  [& {:keys [model messages tool-map tool-schemas stream-cb provider max-turns max-tokens heap nudges]
+  [& {:keys [model messages tool-map tool-schemas stream-cb status-cb provider max-turns max-tokens heap nudges dialogue-id]
       :or {provider :deepseek max-turns 10 max-tokens 4096 nudges true}}]
   (if-not stream-cb
     ;; Non-streaming fallback: use regular LLM
@@ -180,11 +195,17 @@
 
     ;; Streaming path
     (let [{:keys [tool-schemas tool-map]} (tl/with-fetch-result tool-schemas tool-map heap)
-          nudge-opts (tl/normalize-nudges nudges nil)]
+          nudge-opts (tl/normalize-nudges nudges nil)
+          status! (fn [phase & args]
+                    (when status-cb
+                      (try (apply status-cb (apply status-text phase args))
+                           (catch Exception _))))]
       (loop [msgs messages turn 0 nudge-state (gr/make-state)]
         (if (>= turn max-turns)
-          "⚠️ Reached max turns. Try a more specific query."
-          (let [resp (consume-stream
+          (do (status! :max-turns)
+              "⚠️ Reached max turns. Try a more specific query.")
+          (let [_ (status! (if (zero? turn) :starting :after-tool))
+                resp (consume-stream
                       (llm-stream :model (llm/resolve-model model)
                                   :messages msgs :tools tool-schemas
                                   :provider provider :max-tokens max-tokens)
@@ -200,20 +221,48 @@
                     (log/info :stream-tool-call (gr/tool-call-name (first calls))))]
             (case (:action checked :disabled)
               :text content
-              :fatal (str "⚠️ " (:reason checked))
-              :retry (recur (conj msgs (tl/nudge-message (:nudge checked)))
-                            (inc turn)
-                            (:state checked))
-              :step-blocked (recur (conj msgs (tl/nudge-message (:nudge checked)))
-                                   (inc turn)
-                                   (:state checked))
+              :fatal (do
+                       (observe/record!
+                        {:type :error :dialogue-id dialogue-id
+                         :turn turn :error (str (:reason checked))})
+                       (str "⚠️ " (:reason checked)))
+              :retry (do
+                       (status! :retry)
+                       (observe/record!
+                        {:type :nudge :dialogue-id dialogue-id
+                         :turn turn :kind "retry" :reason (:nudge checked)})
+                       (recur (conj msgs (tl/nudge-message (:nudge checked)))
+                              (inc turn)
+                              (:state checked)))
+              :step-blocked (do
+                              (status! :retry)
+                              (observe/record!
+                               {:type :nudge :dialogue-id dialogue-id
+                                :turn turn :kind "step-blocked" :reason (:nudge checked)})
+                              (recur (conj msgs (tl/nudge-message (:nudge checked)))
+                                     (inc turn)
+                                     (:state checked)))
               (:execute :disabled)
               (if (seq calls)
                 ;; Execute tools, continue loop
-                (let [normalized-calls (if nudge-opts
+                (let [tool-name (gr/tool-call-name (first calls))
+                      _ (status! :tool-call :tool-name tool-name)
+                      normalized-calls (if nudge-opts
                                          (:tool-calls checked)
                                          (mapv tl/loose-normalize-tool-call calls))
-                      results (mapv #(tl/execute-tool-call tool-map nil heap %)
+                      results (mapv (fn [call]
+                                      (let [t0 (System/currentTimeMillis)
+                                            r (tl/execute-tool-call tool-map nil heap call)
+                                            elapsed (- (System/currentTimeMillis) t0)]
+                                        (observe/record!
+                                         {:type :tool :dialogue-id dialogue-id
+                                          :turn turn
+                                          :name (tl/tool-name call)
+                                          :ok? (if (map? (:message r))
+                                                 (not (:error (:message r)))
+                                                 true)
+                                          :elapsed elapsed})
+                                        r))
                                     normalized-calls)
                       nudge-state' (tl/next-state nudge-state nudge-opts results)
                       tool-results (mapv :message results)
