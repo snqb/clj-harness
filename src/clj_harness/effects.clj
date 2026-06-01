@@ -73,8 +73,9 @@
     (let [{:keys [llm-fn]} env
           model (::model effect)
           messages (::messages effect)
-          tools (::tools effect)]
-      (llm-fn model messages tools))
+          tools (::tools effect)
+          force-tool? (::force-tool? effect)]
+      (llm-fn model messages tools (when force-tool? {:force-tool? true})))
 
     ::execute-tool
     (let [{:keys [tool-map tool-post-process heap abort-signal]} env

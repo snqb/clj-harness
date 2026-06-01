@@ -35,17 +35,23 @@
   "Call LLM via configured provider. Returns raw API response JSON.
 
    (llm :claude-sonnet [{:role \"user\" :content \"Hi\"}] [] :provider :openrouter)
-   (llm :deepseek-v4-pro [{...}] [{:name \"search\" ...}] :provider :deepseek :max-tokens 2048)"
-  [model-key messages tools & {:keys [provider max-tokens]
+   (llm :deepseek-v4-pro [{...}] [{:name \"search\" ...}] :provider :deepseek :max-tokens 2048)
+   (llm :deepseek-v4-pro msgs tools :provider :deepseek :force-tool? true)"
+  [model-key messages tools & {:keys [provider max-tokens force-tool?]
                                :or {provider :openrouter max-tokens 4096}}]
   (let [pc (get provider-config provider)
         url (:url pc)
         headers ((:headers pc) (infra/read-api-key provider))
         model-name (resolve-model model-key)
+        tool-choice (cond
+                      (true? force-tool?) "required"
+                      (seq tools) "auto"
+                      :else nil)
         payload (cond-> {"model" model-name "messages" messages "max_tokens" max-tokens}
-                  (seq tools) (assoc "tools" tools "tool_choice" "auto"))]
+                  (seq tools) (assoc "tools" tools)
+                  tool-choice (assoc "tool_choice" tool-choice))]
     (log/info :llm-call :provider provider :model model-name :messages (count messages)
-              :tools (count tools))
+              :tools (count tools) :force-tool? force-tool?)
     (infra/http-post url (json/generate-string payload)
                      :headers headers :timeout-ms 180000)))
 
@@ -57,8 +63,8 @@
 
    This is the innermost handler in the middleware stack — it talks to the LLM,
    extracts the assistant message, and passes control back to the tool loop."
-  [{:keys [model messages tools provider] :or {provider :openrouter}}]
-  (let [resp (llm model messages tools :provider provider)
+  [{:keys [model messages tools provider force-tool?] :or {provider :openrouter}}]
+  (let [resp (llm model messages tools :provider provider :force-tool? force-tool?)
         choice (first (get resp "choices"))
         msg (get choice "message")]
     {:content (get msg "content")

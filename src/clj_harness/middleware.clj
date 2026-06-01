@@ -58,7 +58,10 @@
            (if (>= turn mt)
              {:content (str "⚠️ Reached max turns (" mt "). Try a more specific query.")
               :tool-calls nil}
-             (let [resp (handler (assoc ctx :messages msgs :tools tool-schemas))
+             (let [force-tool? (when nudge-opts
+                                 (seq (gr/pending-steps nudge-state (:required-steps nudge-opts))))
+                   resp (handler (assoc ctx :messages msgs :tools tool-schemas
+                                        :force-tool? force-tool?))
                    cfg (tl/guardrail-config tool-map nudge-opts nudge-state)
                    checked (when nudge-opts (gr/check-response nudge-state cfg resp))]
                (if (#{:retry :step-blocked} (:action checked))
@@ -185,12 +188,13 @@
                           (cfg :agent :provider)
                           :deepseek)
              ;; LLM wrapper — delegates to inner handler
-             llm-fn (fn [model-key msgs ts]
+             llm-fn (fn [model-key msgs ts & [opts]]
                       (handler (assoc ctx
                                       :messages msgs
                                       :tools ts
                                       :model model-key
-                                      :provider provider)))
+                                      :provider provider
+                                      :force-tool? (:force-tool? opts))))
              env {:llm-fn llm-fn
                   :tool-map tool-map
                   :tool-post-process tool-post-process

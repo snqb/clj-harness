@@ -42,6 +42,15 @@
    [clojure.string :as str]
    [clojure.tools.logging :as log]))
 
+(defn- pending-tool-required?
+  "Check if the guardrail requires a tool call (pending required steps)."
+  [state]
+  (let [nudge-opts (:nudge-opts state)
+        nudge-state (:nudge-state state)]
+    (boolean
+     (and nudge-opts
+          (seq (gr/pending-steps nudge-state (:required-steps nudge-opts)))))))
+
 ;; ══════════════════════ SIGNALS ══════════════════════
 
 ;; Internal signals between state machine and driver
@@ -104,7 +113,8 @@
                             :turn (:turn state)
                             :messages (count msgs))
         (fx/make-call-llm (:model state) msgs tools
-                          :provider (:provider state))]])
+                          :provider (:provider state)
+                          :force-tool? (pending-tool-required? state))]])
 
     ::signal-error
     [(assoc state :phase :error :error "Unknown error")
@@ -154,9 +164,10 @@
                                 :nudge-state (:state checked)))]
           [state'
            [(fx/make-call-llm (:model state) new-msgs (:tool-schemas state)
-                              :provider (:provider state))]])
+                              :provider (:provider state)
+                              :force-tool? true)]])
 
-        ;; (:execute :disabled) — proceed normally
+        ;; (:execute :disabled)
         (let [normalized-calls (if nudge-opts
                                  (:tool-calls checked)
                                  (when (seq tool-calls)
@@ -223,9 +234,10 @@
         [(assoc state :phase :thinking
                 :turn (inc (:turn state)))
          [(fx/make-call-llm (:model state) (:messages state) (:tool-schemas state)
-                            :provider (:provider state))]]
+                              :provider (:provider state)
+                              :force-tool? (pending-tool-required? state))]]
 
-        ;; Execute next tool
+        ;; (:execute :disabled)
         (let [state' (update state :tool-call-index inc)]
           [state'
            [(fx/make-execute-tool tool-call)]])))
@@ -301,7 +313,8 @@
         [state'
          [(fx/make-emit-event fx/event-turn-start :turn (:turn state))
           (fx/make-call-llm (:model state) new-msgs (:tool-schemas state)
-                            :provider (:provider state))]]))))
+                            :provider (:provider state)
+                            :force-tool? (pending-tool-required? state))]]))))
 
 (defn run
   "Run the agent to completion. Takes env + initial state, returns final response.
