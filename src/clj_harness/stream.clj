@@ -233,9 +233,14 @@
               "⚠️ Reached max turns. Try a more specific query.")
           (let [_ (status! (if (zero? turn) :starting :after-tool))
                 _ (when (zero? turn) (emit! events> {:type :phase/starting :dialogue-id dialogue-id}))
+                ;; Drain steering queue — inject corrections before this LLM call
+                steering-msgs (tl/drain-steering-queue nudge-state)
+                inject-msgs (if (seq steering-msgs)
+                              (into msgs steering-msgs)
+                              msgs)
                 resp (consume-stream
                       (llm-stream :model (llm/resolve-model model)
-                                  :messages msgs :tools tool-schemas
+                                  :messages inject-msgs :tools tool-schemas
                                   :provider provider :max-tokens max-tokens)
                       (fn [delta]
                         (stream-cb delta)

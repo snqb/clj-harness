@@ -157,6 +157,15 @@
 (defn nudge-message [{:keys [content]}]
   {"role" "user" "content" content})
 
+(defn drain-steering-queue
+  "Drain steering queue messages and convert to LLM-injectable user messages.
+   Returns vector of message maps to prepend before the next LLM call.
+   These are NOT stored in conversation history — only injected for this turn.
+   Call at turn boundaries before building the LLM request."
+  [nudge-state]
+  (when-let [drained (gr/steering-drain! nudge-state)]
+    (mapv nudge-message drained)))
+
 (defn raw-call->api [tc]
   {"id" (or (:id tc) (get tc "id") (gr/tool-call-name tc))
    "type" "function"

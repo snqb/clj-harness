@@ -69,7 +69,10 @@
               :tool-calls nil}
              (let [force-tool? (when nudge-opts
                                  (seq (gr/pending-steps nudge-state (:required-steps nudge-opts))))
-                   resp (handler (assoc ctx :messages msgs :tools tool-schemas
+                   ;; Drain steering queue before this turn
+                   steering-msgs (tl/drain-steering-queue nudge-state)
+                   inject-msgs (if (seq steering-msgs) (into msgs steering-msgs) msgs)
+                   resp (handler (assoc ctx :messages inject-msgs :tools tool-schemas
                                         :force-tool? force-tool?))
                    cfg (tl/guardrail-config tool-map nudge-opts nudge-state)
                    checked (when nudge-opts (gr/check-response nudge-state cfg resp))]

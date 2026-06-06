@@ -21,12 +21,43 @@
     :else #{x}))
 
 (defn make-state
-  "Create guardrail state for one task/session. Keep this outside LLM context."
+  "Create guardrail state for one task/session. Keep this outside LLM context.
+
+   :steering-queue — optional atom. When set, guardrail nudges are posted here
+     instead of returned as :retry/:step-blocked actions. The agent loop drains
+     the queue at turn boundaries and injects messages transiently (not stored
+     in conversation history). This decouples guardrails from the loop.
+     Use (atom clojure.lang.PersistentQueue/EMPTY) for a FIFO queue."
   ([] (make-state {}))
-  ([{:keys [completed retry-count step-block-count]}]
+  ([{:keys [completed retry-count step-block-count steering-queue]}]
    {:completed (as-set completed)
     :retry-count (or retry-count 0)
-    :step-block-count (or step-block-count 0)}))
+    :step-block-count (or step-block-count 0)
+    :steering-queue steering-queue}))
+
+(defn steering-post!
+  "Post a nudge message to the steering queue without modifying conversation history.
+   Returns the nudge map.
+   Usage: (steering-post! nudge-state {:content \"You must call smart_search first\"})"
+  [nudge-state message]
+  (when-let [q (:steering-queue nudge-state)]
+    (swap! q (fnil conj clojure.lang.PersistentQueue/EMPTY) message))
+  message)
+
+(defn steering-drain!
+  "Drain all messages from the steering queue. Returns them as a vector.
+   Call at turn boundaries to inject pending corrections."
+  [nudge-state]
+  (when-let [q (:steering-queue nudge-state)]
+    (let [items (loop [acc []]
+                  (if-let [qval @q]
+                    (if (seq qval)
+                      (let [item (peek qval)]
+                        (swap! q pop)
+                        (recur (conj acc item)))
+                      acc)
+                    acc))]
+      items)))
 
 (defn nudge
   "Typed corrective message to inject into the conversation."
