@@ -169,7 +169,7 @@
      :provider    — :deepseek (default) or :openrouter
      :max-turns   — max tool-calling iterations (default 10)
      :max-retries — LLM call retries on failure (default 2)
-     :effects?    — use effect-driven agent loop (experimental, default false)
+     :effects?    — use effect-driven agent loop (default true). Set false for imperative loop.
      :pre-hook         — (fn [user-id text session] => extra-system-prompt-string)
      :on-save          — (fn [user-id session]) called after each response
      :context-reminder — auto-inject previous user topics into system prompt (default true)
@@ -184,7 +184,7 @@
    Returns {:config {...} :pipeline fn :sessions (atom {})}."
   [{:keys [name prompt tools model provider max-turns max-retries pre-hook on-save
            context-reminder? tool-post-process nudges persistence dashboard effects?]
-    :or {provider :deepseek max-turns 10 max-retries 2 context-reminder? true nudges true effects? false}}]
+    :or {provider :deepseek max-turns 10 max-retries 2 context-reminder? true nudges true effects? true}}]
   (let [resolved-provider (or provider :openrouter)
         resolved-model (or model (if (= resolved-provider :deepseek)
                                    :deepseek-v4-pro
