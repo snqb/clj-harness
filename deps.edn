@@ -5,6 +5,7 @@
         ch.qos.logback/logback-classic {:mvn/version "1.5.12"}
         cheshire/cheshire {:mvn/version "5.13.0"}
         aero/aero {:mvn/version "1.1.6"}
+        metosin/malli {:mvn/version "0.16.4"}
         com.github.seancorfield/next.jdbc {:mvn/version "1.3.955"}
         org.xerial/sqlite-jdbc {:mvn/version "3.46.1.3"}}
  :aliases {:run {:main-opts ["-m" "clj-harness.demo"]}

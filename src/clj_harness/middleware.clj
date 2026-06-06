@@ -16,19 +16,28 @@
    [clj-harness.infra :as infra :refer [cfg]]
    [clj-harness.mcp :as mcp]
    [clj-harness.observe :as observe]
-   [clj-harness.tool-loop :as tl]))
+   [clj-harness.tool-loop :as tl]
+   [malli.json-schema :as mjs]))
 
 ;; ══════════════════════ TOOL LOOP ══════════════════════
 
 (defn tool->openai-schema
-  "Convert a harness tool definition to an OpenAI function-calling schema."
+  "Convert a harness tool definition to an OpenAI function-calling schema.
+  :schema accepts JSON Schema maps, Malli forms, or nil (empty schema)."
   [t]
   (if (:mcp t)
     (mcp/mcp-tool->openai-schema t)
-    {"type" "function"
-     "function" {"name" (:name t)
-                 "description" (:description t "")
-                 "parameters" (or (:schema t) {"type" "object" "properties" {}})}}))
+    (let [raw-schema (:schema t)
+          params (cond
+                   (nil? raw-schema) {"type" "object" "properties" {}}
+                   (sequential? raw-schema) (try (mjs/transform raw-schema)
+                                                 (catch Exception _
+                                                   {"type" "object" "properties" {}}))
+                   :else raw-schema)]
+      {"type" "function"
+       "function" {"name" (:name t)
+                   "description" (:description t "")
+                   "parameters" params}})))
 
 (defn wrap-tools
   "Middleware: automatic tool calling loop.

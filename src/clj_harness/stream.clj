@@ -7,7 +7,7 @@
    of clj-harness.core/handle-message for real-time output."
   (:require
    [cheshire.core :as json]
-   [clojure.core.async :refer [chan close! >!! <!!]]
+   [clojure.core.async :refer [chan close! >!! <!! sliding-buffer]]
    [clojure.string :as str]
    [clojure.tools.logging :as log]
    [clj-harness.guardrails :as gr]
@@ -151,6 +151,24 @@
        :tool-calls (when (seq accumulated-tc) accumulated-tc)
        :finish (or @finish-reason "stop")})))
 
+;; ══════════════════════ EVENT BUS ══════════════════════
+
+(defn event-source
+  "Create a core.async channel for structured agent events.
+   Pass to stream-agent as :events> to receive typed events
+   (:phase/starting, :text/delta, :tool/start, :tool/end, etc.)
+   instead of parsing status-cb strings.
+
+   Returns a channel suitable for stream-agent :events>."
+  []
+  (chan (sliding-buffer 64)))
+
+(defn- emit!
+  "Emit a typed event into the events channel if present."
+  [events> event]
+  (when events>
+    (try (>!! events> event) (catch Exception _))))
+
 ;; ══════════════════════ STATUS MESSAGES ══════════════════════
 
 (defn- status-text
@@ -174,6 +192,11 @@
      :tool-schemas  — OpenAI-format tool definitions
      :stream-cb     — (fn [text-fragment]) called for each content delta
      :status-cb     — (fn [status-text]) called for phase changes (Russian status)
+     :events>       — optional core.async channel for structured events
+                       (use clj-harness.stream/event-source to create one)
+                       Events: :phase/starting, :phase/retry, :phase/done,
+                               :tool/start {:tool-name}, :tool/end {:tool-name :ok? :elapsed},
+                               :text/delta {:text}, :error/fatal {:reason}
      :provider      — :deepseek (default) or :openrouter
      :max-turns     — max tool-calling iterations (default 10)
      :max-tokens    — max tokens per LLM call (default 4096)
@@ -181,10 +204,13 @@
                        When provided, large tool outputs (>2K chars) are stored
                        in heap and replaced with compact summary + heap-id.
                        fetch_result tool is automatically added to tool-schemas.
+     :abort-signal  — optional atom. When set to true, running tool calls are
+                       cancelled. Tools that support 3-arity (args, abort, on-update)
+                       can check this atom to abort mid-execution.
      :nudges        — full guardrails under the public nudges name; false disables.
 
    Returns accumulated response string."
-  [& {:keys [model messages tool-map tool-schemas stream-cb status-cb provider max-turns max-tokens heap nudges dialogue-id]
+  [& {:keys [model messages tool-map tool-schemas stream-cb status-cb events> provider max-turns max-tokens heap abort-signal nudges dialogue-id]
       :or {provider :deepseek max-turns 10 max-tokens 4096 nudges true}}]
   (if-not stream-cb
     ;; Non-streaming fallback: use regular LLM
@@ -203,13 +229,17 @@
       (loop [msgs messages turn 0 nudge-state (gr/make-state)]
         (if (>= turn max-turns)
           (do (status! :max-turns)
+              (emit! events> {:type :phase/max-turns :turn turn :dialogue-id dialogue-id})
               "⚠️ Reached max turns. Try a more specific query.")
           (let [_ (status! (if (zero? turn) :starting :after-tool))
+                _ (when (zero? turn) (emit! events> {:type :phase/starting :dialogue-id dialogue-id}))
                 resp (consume-stream
                       (llm-stream :model (llm/resolve-model model)
                                   :messages msgs :tools tool-schemas
                                   :provider provider :max-tokens max-tokens)
-                      stream-cb)
+                      (fn [delta]
+                        (stream-cb delta)
+                        (emit! events> {:type :text/delta :text delta :dialogue-id dialogue-id})))
                 content (:content resp)
                 cfg (tl/guardrail-config tool-map nudge-opts nudge-state)
                 checked (when nudge-opts (gr/check-response nudge-state cfg resp))
@@ -222,12 +252,14 @@
             (case (:action checked :disabled)
               :text content
               :fatal (do
+                       (emit! events> {:type :error/fatal :turn turn :dialogue-id dialogue-id :reason (:reason checked)})
                        (observe/record!
                         {:type :error :dialogue-id dialogue-id
                          :turn turn :error (str (:reason checked))})
                        (str "⚠️ " (:reason checked)))
               :retry (do
                        (status! :retry)
+                       (emit! events> {:type :phase/retry :turn turn :dialogue-id dialogue-id :reason (:nudge checked)})
                        (observe/record!
                         {:type :nudge :dialogue-id dialogue-id
                          :turn turn :kind "retry" :reason (:nudge checked)})
@@ -236,6 +268,7 @@
                               (:state checked)))
               :step-blocked (do
                               (status! :retry)
+                              (emit! events> {:type :phase/retry :turn turn :dialogue-id dialogue-id :reason (:nudge checked) :kind :step-blocked})
                               (observe/record!
                                {:type :nudge :dialogue-id dialogue-id
                                 :turn turn :kind "step-blocked" :reason (:nudge checked)})
@@ -247,20 +280,25 @@
                 ;; Execute tools, continue loop
                 (let [tool-name (gr/tool-call-name (first calls))
                       _ (status! :tool-call :tool-name tool-name)
+                      _ (emit! events> {:type :tool/start :turn turn :dialogue-id dialogue-id :tool-name tool-name})
                       normalized-calls (if nudge-opts
                                          (:tool-calls checked)
                                          (mapv tl/loose-normalize-tool-call calls))
                       results (mapv (fn [call]
                                       (let [t0 (System/currentTimeMillis)
-                                            r (tl/execute-tool-call tool-map nil heap call)
-                                            elapsed (- (System/currentTimeMillis) t0)]
+                                            r (tl/execute-tool-call tool-map nil heap call
+                                                                    abort-signal nil)
+                                            elapsed (- (System/currentTimeMillis) t0)
+                                            ok? (if (map? (:message r))
+                                                  (not (:error (:message r)))
+                                                  true)]
+                                        (emit! events> {:type :tool/end :turn turn :dialogue-id dialogue-id
+                                                        :tool-name (tl/tool-name call) :ok? ok? :elapsed elapsed})
                                         (observe/record!
                                          {:type :tool :dialogue-id dialogue-id
                                           :turn turn
                                           :name (tl/tool-name call)
-                                          :ok? (if (map? (:message r))
-                                                 (not (:error (:message r)))
-                                                 true)
+                                          :ok? ok?
                                           :elapsed elapsed})
                                         r))
                                     normalized-calls)
@@ -274,7 +312,8 @@
                          (inc turn)
                          nudge-state'))
                 ;; No tool calls — final response
-                content))))))))
+                (do (emit! events> {:type :phase/done :turn turn :dialogue-id dialogue-id})
+                    content)))))))))
 
 (comment
   ;; Usage example:

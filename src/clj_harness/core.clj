@@ -36,6 +36,26 @@
 (def session-data memory/session-data)
 (def session-update-data! memory/session-update-data!)
 
+;; ══════════════════════ STATE SNAPSHOT ══════════════════════
+
+(defn snapshot-session
+  "Return full session state as an EDN-serializable map.
+   Captures messages, data map, and any session metadata.
+   Use with [[rehydrate-session]] for full state persistence.
+
+   Unlike the default message-list persistence, this preserves
+   guardrail state, tool history, heap references, and other
+   session data stored in the data map."
+  [session]
+  @session)
+
+(defn rehydrate-session
+  "Restore a session atom from a previously snapshotted state.
+   Resets the session atom to the given state map."
+  [session state]
+  (reset! session state)
+  session)
+
 ;; ══════════════════════ SESSION ══════════════════════
 
 (defn reset-session!
@@ -51,21 +71,34 @@
 
 (defn get-or-create-session
   "Get existing user session or create a new one.
-   If persistence is configured, loads messages from DB on first access."
+   Supports two persistence modes:
+     Legacy: loads messages from DB on first access.
+     Snapshot: loads full state (messages+data) from DB."
   [bot user-id]
   (let [sessions (:sessions bot)
         persistence (:persistence bot)]
     (or (get @sessions user-id)
-        (let [loaded-msgs (when-let [load-fn (some-> persistence :load)]
-                            (try (load-fn (:name (:config bot)) user-id)
-                                 (catch Exception e
-                                   (log/warn e :session-load-fail :user-id user-id)
-                                   [])))
-              s (memory/make-session)]
-          (when (seq loaded-msgs)
-            (reset! s (assoc @s "messages" (vec (take-last 20 loaded-msgs)))))
-          (when persistence
-            (log/info :session-restored :user-id user-id :msgs (count loaded-msgs)))
+        (let [loaded-state (when persistence
+                             (or (when-let [load-fn (:snapshot-load persistence)]
+                                   (try (load-fn (name (:name (:config bot))) user-id)
+                                        (catch Exception e
+                                          (log/warn e :session-load-fail :user-id user-id)
+                                          nil)))
+                                 (when-let [load-fn (:load persistence)]
+                                   (try
+                                     (when-let [msgs (load-fn (name (:name (:config bot))) user-id)]
+                                       (when (seq msgs)
+                                         {"messages" (vec (take-last 20 msgs)) "data" {}}))
+                                     (catch Exception e
+                                       (log/warn e :session-load-fail :user-id user-id)
+                                       nil)))))
+              s (if loaded-state
+                  (memory/make-session loaded-state)
+                  (memory/make-session))]
+          (when (and persistence loaded-state)
+            (log/info :session-restored :user-id user-id
+                      :msgs (count (get @s "messages" []))
+                      :data-keys (keys (get @s "data" {}))))
           (swap! sessions assoc user-id s)
           s))))
 
@@ -143,8 +176,10 @@
      :tool-post-process — (fn [tool-name result] => enriched-result) optional
      :nudges           — Forge-style tool-call guardrails (default true). Use a map
                          with :required-steps and :terminal-tools, or false to disable.
-     :persistence      — SQLite persistence config from clj-harness.session.sqlite/create
-                         {:type :sqlite :load fn :save fn}
+             :persistence      — SQLite or custom persistence config:
+                                 {:type :sqlite :load fn :save fn}
+                                 OR {:snapshot-save fn :snapshot-load fn}
+                                 for full-state (messages+data) persistence
 
    Returns {:config {...} :pipeline fn :sessions (atom {})}."
   [{:keys [name prompt tools model provider max-turns max-retries pre-hook on-save
@@ -162,10 +197,14 @@
                      mw/wrap-logging)
         sessions-atom (atom {})
         auto-save (when persistence
-                    (let [{:keys [save]} persistence
-                          bot-name name]
+                    (if-let [snapshot-save (:snapshot-save persistence)]
+                      ;; Full-state persistence (messages + data map)
                       (fn [user-id session]
-                        (save bot-name user-id (get @session "messages" [])))))
+                        (snapshot-save (:name name) user-id (snapshot-session session)))
+                      ;; Legacy: message-only persistence
+                      (when-let [save (:save persistence)]
+                        (fn [user-id session]
+                          (save (:name name) user-id (get @session "messages" []))))))
         _ (when dashboard
             (dashboard/start! (if (map? dashboard) dashboard {})))]
     {:config    {:name name :prompt prompt :tools (count tools)
@@ -204,9 +243,9 @@
         session-heap (get-in @session ["data" "heap"])
         t0 (System/currentTimeMillis)
         ctx (merge {:messages msgs
-                     :max-turns (:max-turns bot)
-                     :model (or model (-> bot :config :model))
-                     :provider (or provider (-> bot :config :provider))}
+                    :max-turns (:max-turns bot)
+                    :model (or model (-> bot :config :model))
+                    :provider (or provider (-> bot :config :provider))}
                    (when session-heap {:heap session-heap})
                    (when max-turns {:max-turns max-turns})
                    {:nudges (:nudges bot)}
@@ -228,12 +267,14 @@
    stream-cb: (fn [text-chunk]) called with incremental text.
    Options:
      :status-cb — (fn [status-text]) called for phase changes (Russian status).
+     :events>   — optional core.async channel for structured events
+                  (use clj-harness.stream/event-source to create one).
    Uses stream-agent for the agent loop (tools supported).
 
    If session has a :heap atom, it's passed to stream-agent for tool output storage.
 
    Returns accumulated full text, or nil on error."
-  [bot user-id text stream-cb & {:keys [status-cb]}]
+  [bot user-id text stream-cb & {:keys [status-cb events> abort-signal]}]
   (try
     (let [dialogue-id (str user-id "-" (System/currentTimeMillis))
           _ (observe/record! {:type :msg-in :dialogue-id dialogue-id :user user-id :text text})
@@ -249,9 +290,11 @@
                   :tool-schemas (tool-schemas (:tools bot))
                   :stream-cb stream-cb
                   :status-cb status-cb
+                  :events> events>
                   :provider (:provider (:config bot))
                   :max-turns (:max-turns bot)
                   :heap session-heap
+                  :abort-signal abort-signal
                   :nudges (:nudges bot)
                   :dialogue-id dialogue-id)]
       (observe/record!
@@ -310,6 +353,7 @@
     (create-bot (assoc (dissoc opts :mcp-tools) :tools mcp-defs))))
 
 (def shell-tool shell-tools/shell-tool)
+(def event-source stream/event-source)
 
 ;; ══════════════════════ REPL ══════════════════════
 

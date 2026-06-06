@@ -12,9 +12,10 @@
 
 (defn make-session
   "Create a new session atom with empty message history.
+   With optional state map, restores from a previously snapshotted session.
    Returns an atom — thread-safe, swap!-able, deref-able."
-  []
-  (atom {"messages" [] "summary" nil "data" {}}))
+  ([] (atom {"messages" [] "summary" nil "data" {}}))
+  ([state] (atom (merge {"messages" [] "summary" nil "data" {}} state))))
 
 ;; ══════════════════════ MESSAGE OPERATIONS ══════════════════════
 
