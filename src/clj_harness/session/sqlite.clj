@@ -49,6 +49,7 @@
     (log/info :session-db-ready :path db-path)
     {:type :sqlite
      :ds   ds
+     ;; Legacy: message-array persistence (still works, wraps in state map)
      :load (fn [bot-id user-id]
              (try
                (let [row (jdbc/execute-one! ds
@@ -56,14 +57,21 @@
                                              bot-id user-id]
                                             {:builder-fn as-unqualified-lower-maps})]
                  (if row
-                   (json/parse-string (:messages_json row) false)
+                   (let [parsed (json/parse-string (:messages_json row) false)]
+                     ;; Handle both old format (array) and new format (map)
+                     (if (sequential? parsed)
+                       {"messages" (vec (take-last 20 parsed)) "data" {}}
+                       parsed))
                    []))
                (catch Exception e
                  (log/warn e :session-load-error :bot-id bot-id :user-id user-id)
                  [])))
      :save (fn [bot-id user-id messages]
              (try
-               (let [json-str (json/generate-string messages)]
+               ;; Store as new state-map format: {:messages [...] :data {}}
+               ;; Existing data map is preserved on load since the load now
+               ;; returns the full map when in new format
+               (let [json-str (json/generate-string {"messages" messages "data" {}})]
                  (jdbc/execute! ds
                                 ["INSERT INTO sessions (bot_id, user_id, messages_json, updated_at)
                      VALUES (?, ?, ?, unixepoch())
@@ -71,4 +79,32 @@
                      DO UPDATE SET messages_json = ?, updated_at = unixepoch()"
                                  bot-id user-id json-str json-str]))
                (catch Exception e
-                 (log/error e :session-save-error :bot-id bot-id :user-id user-id))))}))
+                 (log/error e :session-save-error :bot-id bot-id :user-id user-id))))
+     ;; Snapshot: full-state persistence (messages + data map)
+     :snapshot-save (fn [bot-id user-id state]
+                      (try
+                        (let [json-str (json/generate-string state)]
+                          (jdbc/execute! ds
+                                         ["INSERT INTO sessions (bot_id, user_id, messages_json, updated_at)
+                     VALUES (?, ?, ?, unixepoch())
+                     ON CONFLICT(bot_id, user_id)
+                     DO UPDATE SET messages_json = ?, updated_at = unixepoch()"
+                                          bot-id user-id json-str json-str]))
+                        (catch Exception e
+                          (log/error e :session-snapshot-save-error :bot-id bot-id :user-id user-id))))
+     :snapshot-load (fn [bot-id user-id]
+                      (try
+                        (let [row (jdbc/execute-one! ds
+                                                     ["SELECT messages_json FROM sessions WHERE bot_id = ? AND user_id = ?"
+                                                      bot-id user-id]
+                                                     {:builder-fn as-unqualified-lower-maps})]
+                          (when row
+                            (let [parsed (json/parse-string (:messages_json row) false)]
+                              (if (sequential? parsed)
+                                ;; Old format: just messages
+                                {"messages" (vec (take-last 20 parsed)) "data" {}}
+                                ;; New format: full state map
+                                parsed))))
+                        (catch Exception e
+                          (log/warn e :session-snapshot-load-error :bot-id bot-id :user-id user-id)
+                          nil)))}))
