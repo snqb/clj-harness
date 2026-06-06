@@ -200,11 +200,11 @@
                     (if-let [snapshot-save (:snapshot-save persistence)]
                       ;; Full-state persistence (messages + data map)
                       (fn [user-id session]
-                        (snapshot-save (:name name) user-id (snapshot-session session)))
+                        (snapshot-save name user-id (snapshot-session session)))
                       ;; Legacy: message-only persistence
                       (when-let [save (:save persistence)]
                         (fn [user-id session]
-                          (save (:name name) user-id (get @session "messages" []))))))
+                          (save name user-id (get @session "messages" []))))))
         _ (when dashboard
             (dashboard/start! (if (map? dashboard) dashboard {})))]
     {:config    {:name name :prompt prompt :tools (count tools)
