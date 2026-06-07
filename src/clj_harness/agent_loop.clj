@@ -50,10 +50,11 @@
   (let [nudge-state (:nudge-state state)
         nudge-opts (:nudge-opts state)
         required (or (:required-steps nudge-opts)
-                     (when nudge-state (:required-steps nudge-state)))]
-    (boolean
-     (and (seq required)
-          (seq (gr/pending-steps nudge-state required))))))
+                     (when nudge-state (:required-steps nudge-state)))
+        pending (when (seq required)
+                  (gr/pending-steps nudge-state required))]
+    (log/info :pending-tool-check :nudge-opts-keys (keys nudge-opts) :required required :pending pending)
+    (boolean (seq pending))))
 
 ;; ══════════════════════ SIGNALS ══════════════════════
 
