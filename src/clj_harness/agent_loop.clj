@@ -43,13 +43,17 @@
    [clojure.tools.logging :as log]))
 
 (defn- pending-tool-required?
-  "Check if the guardrail requires a tool call (pending required steps)."
+  "Check if the guardrail requires a tool call (pending required steps).
+   Also returns true for the first call if required-steps are configured
+   and no tools have been called yet (prevent hallucinated answers)."
   [state]
-  (let [nudge-opts (:nudge-opts state)
-        nudge-state (:nudge-state state)]
+  (let [nudge-state (:nudge-state state)
+        nudge-opts (:nudge-opts state)
+        required (or (:required-steps nudge-opts)
+                     (when nudge-state (:required-steps nudge-state)))]
     (boolean
-     (and nudge-opts
-          (seq (gr/pending-steps nudge-state (:required-steps nudge-opts)))))))
+     (and (seq required)
+          (seq (gr/pending-steps nudge-state required))))))
 
 ;; ══════════════════════ SIGNALS ══════════════════════
 
