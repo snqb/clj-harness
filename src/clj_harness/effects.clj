@@ -74,7 +74,7 @@
           model (::model effect)
           messages (::messages effect)
           tools (::tools effect)
-          force-tool? (::force-tool? effect)]
+          force-tool? (:force-tool? effect)]
       (llm-fn model messages tools (when force-tool? {:force-tool? true})))
 
     ::execute-tool

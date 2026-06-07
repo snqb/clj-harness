@@ -53,7 +53,6 @@
                      (when nudge-state (:required-steps nudge-state)))
         pending (when (seq required)
                   (gr/pending-steps nudge-state required))]
-    (log/info :pending-tool-check :nudge-opts-keys (keys nudge-opts) :required required :pending pending)
     (boolean (seq pending))))
 
 ;; ══════════════════════ SIGNALS ══════════════════════
