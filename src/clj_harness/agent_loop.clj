@@ -148,11 +148,13 @@
          [(fx/make-emit-event fx/event-turn-end :finish finish)]]
 
         :fatal
-        ;; Nudge gave up — return LLM text as final response (not an error)
-        ;; This matches stream-agent behavior: graceful degradation
-        (do (println "[DEBUG] :fatal reached, content:" (pr-str (when content (subs content 0 (min 50 (count content))))) "reason:" (:reason checked))
-            [(assoc state :phase :done :response {:content (or content (str "⚠️ " (:reason checked)))})
-             [(fx/make-emit-event fx/event-turn-end :reason :nudge-fatal)]])
+        ;; Guardrail gave up. If the LLM skipped required steps, don't return
+        ;; its hallucinated content — say we can't answer instead.
+        (let [step-fail? (str/includes? (str (:reason checked)) "skipped required steps")
+              fallback (str "⚠️ " (:reason checked))]
+          (do (println "[DEBUG] :fatal reached, content:" (pr-str (when content (subs content 0 (min 50 (count content))))) "reason:" (:reason checked))
+              [(assoc state :phase :done :response {:content (if step-fail? fallback (or content fallback))})
+               [(fx/make-emit-event fx/event-turn-end :reason :nudge-fatal)]]))
 
         ;; :retry / :step-blocked → nudge message, loop back to :thinking
         ;; Nudges do NOT count as turns — they have their own retry limit
