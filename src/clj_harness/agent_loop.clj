@@ -327,15 +327,17 @@
      :llm-fn  — (fn [model msgs tools] => LLM response)
      :events> — core.async channel for events (optional)
 
-   Returns {:content \"...\" :tool-calls [...] :finish \"stop\"}"
+   Returns {:content \"...\" :tool-calls [...] :finish \"stop\" :tool-results [...]}"
   [env state]
-  (let [[state' effects] (step state signal-start)]
+  (let [tool-results-acc (atom [])
+        [state' effects] (step state signal-start)]
     (loop [st state' pending effects]
       (if (empty? pending)
-        (case (:phase st)
-          :done (or (:response st) {:content "No response."})
-          :error {:content (str "Error: " (:error st)) :error (:error st)}
-          {:content (str "Unexpected phase: " (:phase st))})
+        (let [base (case (:phase st)
+                     :done (or (:response st) {:content "No response."})
+                     :error {:content (str "Error: " (:error st)) :error (:error st)}
+                     {:content (str "Unexpected phase: " (:phase st))})]
+          (assoc base :tool-results @tool-results-acc))
 
         (let [effect (first pending)
               remaining (rest pending)]
@@ -358,6 +360,9 @@
             ::fx/execute-tool
             (let [tool-result (fx/handle-effect env effect)
                   tool-call (::tool-call effect)
+                  ;; Accumulate structured tool results
+                  _ (when (:structured tool-result)
+                      (swap! tool-results-acc conj tool-result))
                   ;; Apply result to messages in state BEFORE feeding signal
                   result-msg (or (:message tool-result)
                                  {:role "tool" :content (str tool-result)})

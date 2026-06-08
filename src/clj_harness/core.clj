@@ -252,7 +252,8 @@
                    {:dialogue-id dialogue-id}
                    overrides)
         resp ((:pipeline bot) ctx)
-        result (or (:content resp) "Sorry, something went wrong.")]
+        result (or (:content resp) "Sorry, something went wrong.")
+        tool-outputs (vec (keep :structured (:tool-results resp)))]
     (observe/record!
      {:type :msg-out :dialogue-id dialogue-id
       :text-len (count result) :total-elapsed (- (System/currentTimeMillis) t0)})
@@ -260,7 +261,9 @@
     (save-session! bot user-id session)
     ;; GC expired heap entries
     (when session-heap (heap/gc! session-heap))
-    result))
+    (if (seq tool-outputs)
+      {:content result :tool-outputs tool-outputs}
+      result)))
 
 (defn handle-message-stream!
   "Like handle-message but streams the final response through stream-cb.
@@ -296,15 +299,21 @@
                   :heap session-heap
                   :abort-signal abort-signal
                   :nudges (:nudges bot)
-                  :dialogue-id dialogue-id)]
+                  :dialogue-id dialogue-id)
+          result-text (if (map? result) (:content result) result)
+          tool-outputs (if (map? result)
+                         (vec (keep :structured (:tool-results result)))
+                         [])]
       (observe/record!
        {:type :msg-out :dialogue-id dialogue-id
-        :text-len (count (or result "")) :total-elapsed (- (System/currentTimeMillis) t0)})
-      (when result
-        (memory/session-add! session "assistant" result)
+        :text-len (count (or result-text "")) :total-elapsed (- (System/currentTimeMillis) t0)})
+      (when result-text
+        (memory/session-add! session "assistant" result-text)
         (save-session! bot user-id session))
       (when session-heap (heap/gc! session-heap))
-      result)
+      (if (seq tool-outputs)
+        {:content result-text :tool-outputs tool-outputs}
+        result-text))
     (catch Exception e
       (log/error e :stream-error)
       nil)))
