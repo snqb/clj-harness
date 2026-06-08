@@ -9,9 +9,8 @@
    and never calls llm or core-agent directly."
   (:require
    [clojure.tools.logging :as log]
-   [clojure.core.async :refer [chan sliding-buffer put! close!]]
+   [clojure.core.async :refer [chan sliding-buffer close!]]
    [clj-harness.agent-loop :as aloop]
-   [clj-harness.effects :as fx]
    [clj-harness.guardrails :as gr]
    [clj-harness.infra :as infra :refer [cfg]]
    [clj-harness.mcp :as mcp]
@@ -181,11 +180,7 @@
   ([handler tools tool-post-process] (wrap-tools-v2 handler tools tool-post-process true))
   ([handler tools tool-post-process default-nudges]
    (let [_tool-map (into {} (map (fn [t] [(tl/tool-name t) t]) tools))
-         _tool-schemas (mapv tool->openai-schema tools)
-         ;; Resolve defaults by calling handler once with empty messages
-         ;; to see what model/provider it uses
-         dummy-resp (try (handler {:messages [] :tools _tool-schemas})
-                         (catch Exception _ {:content "" :tool-calls nil}))]
+         _tool-schemas (mapv tool->openai-schema tools)]
      (fn [{:keys [messages max-turns heap nudges events>] :as ctx}]
        (let [mt (or max-turns (cfg :agent :max-turns) 10)
              {:keys [tool-schemas tool-map]} (tl/with-fetch-result _tool-schemas _tool-map heap)

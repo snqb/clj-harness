@@ -71,7 +71,7 @@
               older (vec (drop-last keep-n messages))
               ;; Take half of older messages for summarizer context
               split-at (max 1 (quot (count older) 2))
-              summary-msgs (vec (take split-at (take split-at older)))
+              summary-msgs (vec (concat (take split-at older) (take-last split-at older)))
               summary (when summarize-fn
                         (summarize-fn (conj summary-msgs
                                             {"role" "system" "content"

@@ -39,8 +39,7 @@
    [clj-harness.effects :as fx]
    [clj-harness.guardrails :as gr]
    [clj-harness.tool-loop :as tl]
-   [clojure.string :as str]
-   [clojure.tools.logging :as log]))
+   [clojure.string :as str]))
 
 (defn- pending-tool-required?
   "Check if the guardrail requires a tool call (pending required steps).
@@ -156,8 +155,7 @@
         ;; its hallucinated content — say we can't answer instead.
         (let [step-fail? (str/includes? (str (:reason checked)) "skipped required steps")
               fallback (str "⚠️ " (:reason checked))]
-          (do (println "[DEBUG] :fatal reached, content:" (pr-str (when content (subs content 0 (min 50 (count content))))) "reason:" (:reason checked))
-              [(assoc state :phase :done :response {:content (if step-fail? fallback (or content fallback))})
+          (do [(assoc state :phase :done :response {:content (if step-fail? fallback (or content fallback))})
                [(fx/make-emit-event fx/event-turn-end :reason :nudge-fatal)]]))
 
         ;; :retry / :step-blocked → nudge message, loop back to :thinking

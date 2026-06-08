@@ -144,7 +144,9 @@
       :ok? (boolean (and tool (result-ok? enriched)))
       :message {"role" "tool"
                 "tool_call_id" id
-                "content" (format-tool-output heap-atom name result-str)}})))
+                "content" (format-tool-output heap-atom name result-str)}
+      :structured (when (and (map? enriched) (:structured enriched))
+                    (:structured enriched))})))
 
 (defn next-state [nudge-state nudge-opts results]
   (if nudge-opts
