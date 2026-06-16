@@ -1,21 +1,21 @@
 (ns clj-harness.telegram.streaming
   "Progressive streaming response to Telegram.
 
-  Consumes a core.async channel of {:type word :text ...} messages
-  and progressively edits a single Telegram message to simulate
-  live thinking/typing.
+  Uses Telegram's Rich Message Draft API for live previews:
+  - sendRichMessageDraft for ephemeral 30-second streaming previews
+  - sendRichMessage for the final persisted message
 
   Channel protocol:
-    {:type :status :text \"🔍 Ищу...\"}  — status update, edits placeholder immediately
-    {:type :delta  :text \"токен\"}     — text chunk, accumulated + throttle-edited
-    {:type :finish :reason \"stop\"}    — final edit with md→html + split
+    {:type :status :text \"🔍 Ищу...\"}  — status update, draft immediately
+    {:type :delta  :text \"токен\"}     — text chunk, accumulated + throttle-drafted
+    {:type :finish :reason \"stop\"}    — final send via sendRichMessage
     {:delta \"токен\"} / {:done :closed} — also accepted from handle-message-async
     channel closes                     — equivalent to :done
 
-  Throttle: edits fire at most every 800ms (status messages are immediate).
+  Throttle: drafts fire at most every 800ms (status messages are immediate).
   Mid-stream previews are block-buffered plain text: unfinished trailing
   markdown stays hidden until a paragraph, line/list item, or sentence
-  completes. Final edit uses full md→html formatting.
+  completes. Final message uses full rich markdown rendering.
 
   Usage:
     (require '[clj-harness.telegram.streaming :as ts]
@@ -69,123 +69,109 @@
   (or (:text msg) (:delta msg) ""))
 
 (defn- render-final
-  "Render final accumulated text: md→html → split → edit first + send rest.
-   Passes reply_markup to the edit (e.g. reset keyboard)."
-  [chat-id msg-id ^String text & {:keys [reply_markup]}]
-  (let [html (fmt/md->html text)
-        chunks (fmt/split-message html)]
-    (if (= 1 (count chunks))
-      (tg/edit-message chat-id msg-id (first chunks)
-                       :parse-mode "HTML" :preview false :reply_markup reply_markup)
-      (do
-        (tg/edit-message chat-id msg-id (first chunks)
-                         :parse-mode "HTML" :preview false :reply_markup reply_markup)
-        (doseq [chunk (rest chunks)]
-          (tg/send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup))))))
+  "Render final accumulated text via Rich Messages API.
+   Falls back to legacy HTML if Rich Messages unavailable."
+  [chat-id ^String text & {:keys [reply_markup]}]
+  (let [result (tg/send-rich-message chat-id :markdown text :preview false
+                                     :reply-markup reply_markup)]
+    (when-not result
+      ;; Fallback: legacy md→html → split
+      (let [html (fmt/md->html text)
+            chunks (fmt/split-message html)]
+        (if (= 1 (count chunks))
+          (tg/send-message chat-id (first chunks)
+                           :parse-mode "HTML" :preview false :reply_markup reply_markup)
+          (do
+            (tg/send-message chat-id (first chunks)
+                             :parse-mode "HTML" :preview false :reply_markup reply_markup)
+            (doseq [chunk (rest chunks)]
+              (tg/send-message chat-id chunk
+                               :parse-mode "HTML" :preview false :reply_markup reply_markup))))))))
 
 ;; ══════════════════════ MAIN ══════════════════════
 
 (defn stream-to-telegram
-  "Stream LLM response to a Telegram chat with progressive editing.
+  "Stream LLM response to a Telegram chat using Rich Message Drafts.
 
    chat-id   — Telegram chat id (number or string)
    ch        — core.async channel of {:type :status|:delta|:finish :text \"...\"}
    Options:
      :placeholder    — initial message (default \"🧠 Думаю...\")
      :throttle-ms    — edit throttle interval in ms (default 800)
-     :parse-mode     — text parse-mode for status/delta previews (default nil = plain)
-                       Final edit always uses HTML.
      :reset-button?  — attach '🔄 Новый диалог' ReplyKeyboardMarkup to final message
-                       Tapping sends '/reset' as text — wire to your command handler.
+
+   Uses sendRichMessageDraft for progressive streaming (ephemeral 30s previews)
+   and sendRichMessage for the final persisted message.
 
    Returns a go-block that resolves to the final accumulated text."
-  [chat-id ch & {:keys [placeholder throttle-ms parse-mode reset-button?]
+  [chat-id ch & {:keys [placeholder throttle-ms reset-button?]
                  :or {placeholder default-placeholder
-                      throttle-ms default-throttle-ms
-                      parse-mode nil}}]
-  (let [reply_markup (when reset-button? (tg/reset-keyboard))]
+                      throttle-ms default-throttle-ms}}]
+  (let [reply_markup (when reset-button? (tg/reset-keyboard))
+        draft-id (int (rand-int 999999))]
     (go
       (try
-        (let [placeholder-msg (tg/send-message chat-id placeholder
-                                               :parse-mode parse-mode
-                                               :preview false)
-              msg-id (some-> placeholder-msg (get "result") (get "message_id"))]
-          (if-not msg-id
-            ;; Fallback: no message to edit — accumulate, then send final Markdown.
-            (loop [acc ""]
-              (if-let [msg (<! ch)]
-                (case (msg-type msg)
-                  :delta (recur (str acc (msg-text msg)))
-                  :finish (do (tg/send-md chat-id acc :reply_markup reply_markup)
-                              acc)
-                  ;; :status, unknown — ignore
-                  (recur acc))
-                (do
-                  (when (seq acc)
-                    (tg/send-md chat-id acc :reply_markup reply_markup))
-                  acc)))
+        ;; Send initial draft
+        (tg/send-rich-message-draft chat-id draft-id :markdown placeholder)
+        (let [stop-ch (chan)
+              tick-ch (ticker-chan throttle-ms stop-ch)
+              acc (volatile! "")
+              last-preview (volatile! "")]
+          (try
+            (loop []
+              (let [[msg port] (alts! [ch tick-ch])]
+                (cond
+                  (= port tick-ch)
+                  (let [preview (fmt/streaming-preview @acc)]
+                    (when (and (seq preview) (not= preview @last-preview))
+                      (tg/send-rich-message-draft chat-id draft-id :markdown preview)
+                      (vreset! last-preview preview))
+                    (recur))
 
-            ;; Normal path: edit placeholder with block-buffered previews.
-            (let [stop-ch (chan)
-                  tick-ch (ticker-chan throttle-ms stop-ch)
-                  acc (volatile! "")
-                  last-preview (volatile! "")]
-              (try
-                (loop []
-                  (let [[msg port] (alts! [ch tick-ch])]
-                    (cond
-                      (= port tick-ch)
-                      (let [preview (fmt/streaming-preview @acc)]
-                        (when (and (seq preview) (not= preview @last-preview))
-                          (tg/edit-message chat-id msg-id preview
-                                           :parse-mode parse-mode :preview false)
-                          (vreset! last-preview preview))
-                        (recur))
+                  (nil? msg)
+                  (let [text @acc]
+                    (when (seq text)
+                      (render-final chat-id text :reply_markup reply_markup))
+                    text)
 
-                      (nil? msg)
-                      (let [text @acc]
-                        (when (seq text)
-                          (render-final chat-id msg-id text :reply_markup reply_markup))
-                        text)
+                  :else
+                  (case (msg-type msg)
+                    :status
+                    (let [text (fmt/strip-md (msg-text msg))]
+                      (tg/send-rich-message-draft chat-id draft-id :markdown text)
+                      (vreset! last-preview text)
+                      (vreset! acc "")
+                      (recur))
 
-                      :else
-                      (case (msg-type msg)
-                        :status
-                        (let [text (fmt/strip-md (msg-text msg))]
-                          (tg/edit-message chat-id msg-id text
-                                           :parse-mode parse-mode :preview false)
-                          (vreset! last-preview text)
-                          (vreset! acc "")
-                          (recur))
+                    :delta
+                    (do
+                      (vreset! acc (str @acc (msg-text msg)))
+                      (recur))
 
-                        :delta
-                        (do
-                          (vreset! acc (str @acc (msg-text msg)))
-                          (recur))
+                    :finish
+                    (let [text @acc]
+                      (render-final chat-id text :reply_markup reply_markup)
+                      text)
 
-                        :finish
-                        (let [text @acc]
-                          (render-final chat-id msg-id text :reply_markup reply_markup)
-                          text)
-
-                        ;; Unknown type → ignore
-                        (recur)))))
-                (finally
-                  (close! stop-ch)
-                  (close! tick-ch))))))
+                    ;; Unknown type → ignore
+                    (recur)))))
+            (finally
+              (close! stop-ch)
+              (close! tick-ch))))
         (catch Exception e
           (log/error e :stream-error)
           (try (tg/send-message chat-id "❌ Произошла ошибка. Попробуйте ещё раз."
                                 :reply_markup reply_markup)
                (catch Exception _))
           nil)))))
+
 ;; ══════════════════════ CONVENIENCE ══════════════════════
 
 ;; ── Non-streaming (still useful as a one-shot convenience) ──
 
 (defn send-response
   "Send a complete response (non-streaming convenience).
-   Sends formatted HTML.
+   Uses Rich Messages API (send-md).
    Options:
      :reply_markup  — passed through to send-md
      :reset-button?  — attach '🔄 Новый диалог' keyboard to response"

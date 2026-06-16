@@ -1,18 +1,14 @@
 (ns clj-harness.telegram.format
-  "Telegram HTML formatting for LLM-generated markdown.
+  "Telegram message formatting utilities.
 
-  Pipeline:
-    LLM markdown → md->html → split-html → parse_mode='HTML'
+  Primary path: LLM markdown → sendRichMessage(markdown=...) — Telegram natively
+  renders tables, headings, lists, code blocks, footnotes, math, etc.
 
-  Based on nanobot's _markdown_to_telegram_html() pattern
-  (https://github.com/HKUDS/nanobot/pull/3355).
+  Legacy path: LLM markdown → md->html → sendMessage(parse_mode=HTML)
+  Used as fallback when Rich Messages API unavailable.
 
-  Key design decisions:
-  - Use Telegram HTML (not MarkdownV2) — no strict escaping, no parse failures
-  - Headers (#, ##) become <b>bold</b> since Telegram has no heading entity
-  - Escape HTML entities BEFORE converting markdown (safe order)
-  - Split at 4096 chars respecting HTML tag boundaries
-  - Rewrites markdown tables into bullet/key-value lists — tables don't render on Telegram mobile"
+  Streaming: strip-md + streaming-preview for plain-text draft previews.
+  completed-markdown-prefix buffers unfinished markdown during streaming."
   (:require [clojure.string :as str]))
 
 ;; ══════════════════════ HTML ESCAPE ══════════════════════
@@ -300,11 +296,12 @@
 
 (defn strip-md
   "Strip markdown syntax for readable plain-text preview.
-   Used during streaming mid-edits so users see clean text
-   instead of raw markdown while the response is being generated."
+   Used during streaming mid-edits as a safety fallback.
+   With Rich Message Drafts, most markdown renders natively,
+   so this is only needed for legacy editMessageText paths."
   [text]
   (reduce (fn [t [pat repl]] (str/replace t pat repl))
-          (rewrite-markdown-tables (or text ""))
+          (or text "")
           md-strip-patterns))
 
 ;; ══════════════════════ STREAMING PREVIEW ══════════════════════
@@ -354,12 +351,15 @@
           "")))))
 
 (defn streaming-preview
-  "Readable plain-text preview for in-progress Markdown streaming.
+  "Markdown preview for in-progress streaming via Rich Message Drafts.
 
-   Unlike strip-md over the whole response, this buffers unfinished trailing
-   markdown so live Telegram edits show only completed readable blocks."
+   Returns the largest safe prefix of accumulated markdown that won't
+   show half-formed tables or code blocks. Telegram natively renders
+   the markdown in the draft preview.
+
+   For legacy editMessageText paths, wrap with strip-md."
   [text]
-  (str/trimr (strip-md (completed-markdown-prefix text))))
+  (str/trimr (completed-markdown-prefix text)))
 
 ;; ══════════════════════ MONOSPACE TABLE BUILDER ══════════════════════
 

@@ -77,7 +77,59 @@
           :else
           (do (log/error :tg-error status :body (.body resp)) nil))))))
 
-;; ══════════════════════ MESSAGE API ══════════════════════
+;; ══════════════════════ RICH MESSAGE API ══════════════════════
+
+(defn send-rich-message
+  "Send a rich formatted message via Telegram's new Rich Messages API.
+
+   Telegram natively renders: tables (with alignment), headings, task lists,
+   block quotations, footnotes, math formulas, <details> collapsible blocks,
+   media, and more.
+
+   Options:
+     :markdown     — Rich Markdown string (tables, headings, etc.)
+     :html         — Rich HTML string (alternative to markdown)
+     :preview      — link preview: true (default) or false
+     :reply-to     — message_id to reply to
+     :reply-markup — InlineKeyboardMarkup or ReplyKeyboardMarkup
+
+   Exactly one of :markdown or :html must be provided.
+
+   Returns Telegram Message object or nil on failure."
+  [chat-id & {:keys [markdown html preview reply-to reply-markup]}]
+  (let [rich-msg (cond-> {}
+                   markdown (assoc "markdown" markdown)
+                   html (assoc "html" html)
+                   (false? preview) (assoc "skip_entity_detection" false))
+        body (cond-> {"chat_id" (str chat-id)
+                      "rich_message" rich-msg}
+               reply-to (assoc "reply_to_message_id" (str reply-to))
+               reply-markup (assoc "reply_markup" reply-markup))]
+    (call "sendRichMessage" body)))
+
+(defn send-rich-message-draft
+  "Stream a partial rich message preview (ephemeral, 30-second TTL).
+
+   Use the same :draft-id across calls to animate updates.
+   When done, call send-rich-message to persist the final content.
+
+   Options:
+     :markdown  — Rich Markdown string
+     :html      — Rich HTML string
+     :thread-id — message_thread_id for forum topics
+
+   Returns True on success, nil on failure."
+  [chat-id draft-id & {:keys [markdown html thread-id]}]
+  (let [rich-msg (cond-> {}
+                   markdown (assoc "markdown" markdown)
+                   html (assoc "html" html))
+        body (cond-> {"chat_id" chat-id
+                      "draft_id" draft-id
+                      "rich_message" rich-msg}
+               thread-id (assoc "message_thread_id" thread-id))]
+    (call "sendRichMessageDraft" body)))
+
+;; ══════════════════════ MESSAGE API (legacy) ══════════════════════
 
 (defn send-message
   "Send a text message to chat.
@@ -90,8 +142,7 @@
    Returns Telegram Message object or nil on failure."
   [chat-id text & {:keys [parse-mode preview reply-to reply_markup]
                    :or {parse-mode "HTML" preview true}}]
-  (let [safe-text (fmt/rewrite-markdown-tables text)
-        body (cond-> {"chat_id" (str chat-id) "text" safe-text}
+  (let [body (cond-> {"chat_id" (str chat-id) "text" text}
                parse-mode (assoc "parse_mode" parse-mode)
                (false? preview) (assoc "disable_web_page_preview" true)
                reply-to (assoc "reply_to_message_id" (str reply-to))
@@ -108,10 +159,9 @@
    Options: :parse-mode (\"HTML\" default), :preview (true default), :reply_markup"
   [chat-id message-id text & {:keys [parse-mode preview reply_markup]
                               :or {parse-mode "HTML" preview true}}]
-  (let [safe-text (fmt/rewrite-markdown-tables text)
-        body (cond-> {"chat_id" (str chat-id)
+  (let [body (cond-> {"chat_id" (str chat-id)
                       "message_id" (str message-id)
-                      "text" safe-text}
+                      "text" text}
                parse-mode (assoc "parse_mode" parse-mode)
                (false? preview) (assoc "disable_web_page_preview" true)
                reply_markup (assoc "reply_markup" reply_markup))]
@@ -226,18 +276,28 @@
          "reply_markup" (json/generate-string markup)}))
 
 (defn send-md
-  "Send LLM markdown text — converts to HTML, splits if needed.
-   Options: :reply_markup passed through to send-message.
+  "Send LLM markdown text via Rich Messages API.
+   Telegram natively renders tables, headings, lists, code blocks, etc.
+   Falls back to legacy HTML path if Rich Messages unavailable.
+   Options: :reply_markup passed through to send-rich-message.
    Returns sequence of sent Message objects."
   [chat-id text & {:keys [reply_markup]}]
   (if (str/blank? text)
     (do (log/warn :empty-response) nil)
-    (let [html (fmt/md->html text)
-          chunks (fmt/split-message html)]
-      (doall
-       (map (fn [chunk]
-              (send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup))
-            chunks)))))
+    ;; Try Rich Messages first (native markdown rendering)
+    (let [result (send-rich-message chat-id
+                                    :markdown text
+                                    :preview false
+                                    :reply-markup reply_markup)]
+      (if result
+        [result]
+        ;; Fallback: legacy md→html path
+        (let [html (fmt/md->html text)
+              chunks (fmt/split-message html)]
+          (doall
+           (map (fn [chunk]
+                  (send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup))
+                chunks)))))))
 
 ;; ══════════════════════ POLLING ══════════════════════
 
@@ -376,55 +436,40 @@
             ;; Agent
             agent-fn
             (if streaming?
-              ;; Streaming mode: status → block-buffered previews → final HTML
+              ;; Streaming mode: use Rich Message Drafts for progressive preview
               (let [txt (volatile! "")
-                    msg-id (volatile! nil)
+                    draft-id (int (rand-int 999999))  ; stable draft ID for animation
                     last-preview (volatile! "")
-                    status-cb (fn [status-text]
-                                (when-let [mid @msg-id]
-                                  (try
-                                    (vreset! txt "")
-                                    (vreset! last-preview status-text)
-                                    (edit-message chat-id mid status-text
-                                                  :parse-mode nil :preview false)
-                                    (catch Exception e
-                                      (log/warn e :stream-status-edit-fail :msg-id mid)))))
                     stream-cb (fn [delta]
                                 (vswap! txt str delta)
-                                (when-let [mid @msg-id]
-                                  (try
-                                    (let [preview (fmt/streaming-preview @txt)]
-                                      (when (and (seq preview) (not= preview @last-preview))
-                                        (edit-message chat-id mid preview
-                                                      :parse-mode nil :preview false)
-                                        (vreset! last-preview preview)))
-                                    (catch Exception e
-                                      (log/warn e :stream-edit-fail :msg-id mid :text-len (count @txt))))))
-                    placeholder (send-message chat-id "🧠 Анализирую запрос…"
-                                              :parse-mode nil)
-                    mid-val (get-in placeholder ["result" "message_id"])]
-                (log/info :stream-placeholder-sent :msg-id mid-val)
-                (vreset! msg-id mid-val)
-                (let [result (agent-fn user-id text {:stream-cb stream-cb :status-cb status-cb})
-                      final-text (or result @txt)]
-                  ;; Final edit renders full Markdown as Telegram HTML.
+                                (try
+                                  (let [preview (fmt/streaming-preview @txt)]
+                                    (when (and (seq preview) (not= preview @last-preview))
+                                      (send-rich-message-draft chat-id draft-id
+                                                               :markdown preview)
+                                      (vreset! last-preview preview)))
+                                  (catch Exception e
+                                    (log/warn e :stream-draft-fail :text-len (count @txt)))))
+                    ;; Send initial draft
+                    _ (send-rich-message-draft chat-id draft-id
+                                               :markdown "🧠 Анализирую запрос…")
+                    result (agent-fn user-id text {:stream-cb stream-cb})
+                    final-text (or result @txt)]
+                  ;; Final: send rich message to persist (draft is ephemeral)
                   (if result
-                    (edit-message chat-id @msg-id (fmt/md->html result)
-                                  :parse-mode "HTML" :preview false)
-                    ;; Agent streamed without returning full text — finalize accumulated content.
+                    (send-rich-message chat-id :markdown result :preview false)
                     (if (str/blank? @txt)
-                      (edit-message chat-id @msg-id "Извините, не получилось ответить." :parse-mode nil)
-                      (edit-message chat-id @msg-id (fmt/md->html @txt)
-                                    :parse-mode "HTML" :preview false)))
+                      (send-message chat-id "Извините, не получилось ответить." :parse-mode nil)
+                      (send-rich-message chat-id :markdown @txt :preview false)))
                   ;; Post-stream callback — for inline buttons, follow-up messages
                   (when post-stream
                     (try
-                      (post-stream chat-id user-id @msg-id (str final-text))
+                      (post-stream chat-id user-id nil (str final-text))
                       (catch Exception e
                         (log/warn e :post-stream-error))))
                   (observe/record!
                    {:type :msg-out :dialogue-id dialogue-id
-                    :text-len (count (str final-text))})))
+                    :text-len (count (str final-text))}))
               ;; Non-streaming fallback
               (do
                 (let [t0 (System/currentTimeMillis)
