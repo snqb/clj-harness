@@ -101,7 +101,7 @@
                (let [header-w (count (str/trim (or (nth headers c "") "")))
                      max-data (apply max 0 (map #(count (str/trim (or (nth % c "") "")))
                                                 all-rows))]
-                 (min 24 (max 2 max-data header-w)))))
+                 (min 32 (max 2 max-data header-w)))))
         ;; Build a line from cells with padding
         render-row (fn [cells]
                      (str/trimr
@@ -379,7 +379,7 @@
         (vec (for [c (range col-count)]
                (let [header-w (count (nth headers c))
                      max-data (apply max 0 (map #(count (str (nth % c ""))) rows))]
-                 (min 24 (max 2 max-data header-w)))))
+                 (min 32 (max 2 max-data header-w)))))
         render-row (fn [cells]
                      (str/trimr
                       (str/join "  "
