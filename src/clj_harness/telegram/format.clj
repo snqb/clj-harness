@@ -53,10 +53,12 @@
          (every? separator-cell? cells))))
 
 (defn- markdown-table-block?
-  "True when a contiguous pipe-row block is a real Markdown table."
+  "True when a contiguous pipe-row block is a real Markdown table.
+   Requires either a separator row OR 3+ consecutive pipe rows."
   [lines]
   (and (>= (count lines) 2)
-       (some separator-row? lines)))
+       (or (some separator-row? lines)
+           (>= (count lines) 3))))
 
 (defn- truncate-cell [s max-w]
   (if (> (count s) max-w)
@@ -72,20 +74,25 @@
 (defn- table-block->monospace
   "Render a Markdown table as a Telegram <pre> monospace block.
    Columns are aligned with spaces. Max column width is capped at 24.
-   Returns nil if the result would exceed 4000 chars (leave room for <pre> tags)."
+   Returns nil if the result would exceed 4000 chars (leave room for <pre> tags).
+   If no separator row, first row is treated as header."
   [lines]
   (let [rows (mapv (comp vec table-cells) lines)
         sep-idx (first (keep-indexed (fn [idx line]
                                        (when (separator-row? line) idx))
                                      lines))
-        headers (if (pos? (or sep-idx 0))
-                  (get rows (dec sep-idx))
-                  [])
-        data-rows (->> rows
-                       (keep-indexed (fn [idx row]
-                                       (when (and (not= idx sep-idx)
-                                                  (or (nil? sep-idx) (> idx sep-idx)))
-                                         row))))
+        headers (cond
+                  ;; Has separator: row before it is header
+                  (pos? (or sep-idx 0)) (get rows (dec sep-idx))
+                  ;; No separator, 3+ rows: first row is header
+                  (>= (count rows) 3) (first rows)
+                  ;; 2 rows, no separator: first row is header
+                  :else (first rows))
+        data-rows (cond
+                    ;; Has separator: rows after it
+                    sep-idx (subvec rows (inc sep-idx))
+                    ;; No separator: all rows except first
+                    :else (subvec rows 1))
         all-rows (if (seq data-rows) data-rows rows)
         col-count (apply max (count headers) (map count all-rows))
         ;; Calculate column widths (cap at 24)
