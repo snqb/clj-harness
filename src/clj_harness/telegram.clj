@@ -42,6 +42,7 @@
 (def split-message fmt/split-message)
 (def escape-html fmt/escape-html)
 (def rewrite-markdown-tables fmt/rewrite-markdown-tables)
+(def render-table fmt/render-table)
 
 ;; ══════════════════════ HTTP ══════════════════════
 
@@ -115,6 +116,23 @@
                (false? preview) (assoc "disable_web_page_preview" true)
                reply_markup (assoc "reply_markup" reply_markup))]
     (call "editMessageText" body)))
+
+(defn answer-callback-query
+  "Answer a callback query to stop Telegram's loading spinner.
+   Must be called ASAP after receiving callback_query — Telegram shows
+   a spinning hourglass until answered.
+
+   Options:
+     :text    — optional toast text shown to user (max 200 chars)
+     :show-alert — if true, shows alert dialog instead of toast (default false)
+
+   Works in both polling and webhook mode. In webhook mode the response body
+   can also answer it, but direct API call is safer and mode-agnostic."
+  [callback-query-id & {:keys [text show-alert]}]
+  (let [body (cond-> {"callback_query_id" (str callback-query-id)}
+               text (assoc "text" text)
+               show-alert (assoc "show_alert" true))]
+    (call "answerCallbackQuery" body)))
 
 (defn send-typing
   "Send typing indicator to chat."

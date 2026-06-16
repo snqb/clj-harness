@@ -58,6 +58,63 @@
   (and (>= (count lines) 2)
        (some separator-row? lines)))
 
+(defn- truncate-cell [s max-w]
+  (if (> (count s) max-w)
+    (subs s 0 (dec max-w))
+    s))
+
+(defn- pad-right [s w]
+  (let [len (count s)]
+    (if (>= len w)
+      s
+      (str s (apply str (repeat (- w len) \space))))))
+
+(defn- table-block->monospace
+  "Render a Markdown table as a Telegram <pre> monospace block.
+   Columns are aligned with spaces. Max column width is capped at 24.
+   Returns nil if the result would exceed 4000 chars (leave room for <pre> tags)."
+  [lines]
+  (let [rows (mapv (comp vec table-cells) lines)
+        sep-idx (first (keep-indexed (fn [idx line]
+                                       (when (separator-row? line) idx))
+                                     lines))
+        headers (if (pos? (or sep-idx 0))
+                  (get rows (dec sep-idx))
+                  [])
+        data-rows (->> rows
+                       (keep-indexed (fn [idx row]
+                                       (when (and (not= idx sep-idx)
+                                                  (or (nil? sep-idx) (> idx sep-idx)))
+                                         row))))
+        all-rows (if (seq data-rows) data-rows rows)
+        col-count (apply max (count headers) (map count all-rows))
+        ;; Calculate column widths (cap at 24)
+        col-widths
+        (vec (for [c (range col-count)]
+               (let [header-w (count (str/trim (or (nth headers c "") "")))
+                     max-data (apply max 0 (map #(count (str/trim (or (nth % c "") "")))
+                                                all-rows))]
+                 (min 24 (max 2 max-data header-w)))))
+        ;; Build a line from cells with padding
+        render-row (fn [cells]
+                     (str/trimr
+                      (str/join "  "
+                                (map (fn [c w]
+                                       (pad-right (truncate-cell (str/trim (or c "")) w) w))
+                                     (concat cells (repeat ""))
+                                     col-widths))))
+        header-line (when (seq headers) (render-row headers))
+        separator (when (seq headers)
+                    (str/join "  " (map #(apply str (repeat % \─)) col-widths)))
+        data-lines (mapv render-row all-rows)
+        body (str/join "\n" (cond-> []
+                              header-line (conj header-line)
+                              separator (conj separator)
+                              :else (into data-lines)))
+        result (str "<pre>" body "</pre>")]
+    (when (<= (count result) 4000)
+      result)))
+
 (defn- row->bullet [headers row]
   (let [pairs (->> (map vector headers row)
                    (keep (fn [[header value]]
@@ -89,17 +146,24 @@
                       (remove #(every? str/blank? %) rows))]
     (str/join "\n" (map #(row->bullet headers %) bullet-rows))))
 
-(defn rewrite-markdown-tables
-  "Rewrite Markdown tables into Telegram-friendly bullet/key-value lists.
+(defn- table-block->rendered
+  "Convert one Markdown table block: try monospace <pre> first, fall back to bullets."
+  [lines]
+  (or (table-block->monospace lines)
+      (table-block->bullets lines)))
 
-  Telegram clients don't render Markdown tables; raw pipes create visual noise.
-  This preserves the table data while ensuring outbound Telegram text never
-  contains table blocks. Non-table pipe text is left untouched."
+(defn rewrite-markdown-tables
+  "Rewrite Markdown tables into Telegram-friendly format.
+
+  Small tables (≤5 cols, fits in 4096 chars) render as aligned monospace
+  <pre> blocks. Wide or oversized tables fall back to bullet/key-value lists
+  since Telegram clients don't render raw Markdown tables.
+  Non-table pipe text is left untouched."
   [text]
   (letfn [(flush-block [out block]
             (cond
               (empty? block) out
-              (markdown-table-block? block) (conj out (table-block->bullets block))
+              (markdown-table-block? block) (conj out (table-block->rendered block))
               :else (into out block)))]
     (let [lines (str/split-lines (or text ""))
           trailing-newline? (str/ends-with? (or text "") "\n")
@@ -119,6 +183,7 @@
 ;; ══════════════════════ MARKDOWN → TELEGRAM HTML ══════════════════════
 
 (def ^:private inline-code-placeholder-prefix "◊ICODE◊")
+(def ^:private pre-block-placeholder-prefix "◊PRE◊")
 
 (defn save-matches
   "Save regex matches as placeholders. Returns [text-with-placeholders saved-items]."
@@ -167,10 +232,13 @@
   [^String text]
   (if (str/blank? text)
     text
-    (let [;; Step 0: Rewrite markdown tables (they don't render on Telegram)
+    (let [;; Step 0: Rewrite markdown tables (monospace <pre> or bullets)
           clean (rewrite-markdown-tables text)
+          ;; Step 0.5: Save <pre>...</pre> blocks before HTML escaping
+          [t0 pre-blocks] (save-matches clean #"(?s)(<pre>.*?</pre>)"
+                                         pre-block-placeholder-prefix)
           ;; Step 1: Save inline code before escaping
-          [t1 inline-codes] (save-matches clean #"`([^`]+)`"
+          [t1 inline-codes] (save-matches t0 #"`([^`]+)`"
                                           inline-code-placeholder-prefix)
           ;; Step 2: Save headers before escaping
           [t2 headers] (save-matches t1 #"(?m)^#{1,6}\s+(.+)$"
@@ -201,8 +269,11 @@
           t13 (restore-matches t12 inline-code-placeholder-prefix inline-codes
                                (fn [code] (str "<code>" (escape-html code) "</code>")))
           ;; Step 14: Horizontal rules
-          t14 (str/replace t13 #"(?m)^---+$" "<code>———</code>")]
-      t14)))
+          t14 (str/replace t13 #"(?m)^---+$" "<code>———</code>")
+          ;; Step 15: Restore <pre> monospace table blocks
+          t15 (restore-matches t14 pre-block-placeholder-prefix pre-blocks
+                               (fn [block] block))]
+      t15)))
 
 ;; ══════════════════════ STRIP MARKDOWN ══════════════════════
 
@@ -282,6 +353,48 @@
    markdown so live Telegram edits show only completed readable blocks."
   [text]
   (str/trimr (strip-md (completed-markdown-prefix text))))
+
+;; ══════════════════════ MONOSPACE TABLE BUILDER ══════════════════════
+
+(defn render-table
+  "Build a Telegram monospace table from headers + rows.
+   Returns a <pre> HTML string with aligned columns.
+   Falls back to bullet list if result exceeds 4000 chars.
+
+   Usage:
+     (render-table [\"Name\" \"Price\" \"Link\"]
+                   [[\"iPhone 15\" \"72000\" \"lalafo.kg/123\"]
+                    [\"Galaxy S24\" \"65000\" \"lalafo.kg/456\"]])
+   → \"<pre>Name       Price  Link\n────────  ─────  ──────────────\niPhone 15  72000  lalafo.kg/123\nGalaxy S24 65000  lalafo.kg/46</pre>\""
+  [headers rows]
+  (let [col-count (count headers)
+        col-widths
+        (vec (for [c (range col-count)]
+               (let [header-w (count (nth headers c))
+                     max-data (apply max 0 (map #(count (str (nth % c ""))) rows))]
+                 (min 24 (max 2 max-data header-w)))))
+        render-row (fn [cells]
+                     (str/trimr
+                      (str/join "  "
+                                (map (fn [c w]
+                                       (pad-right (truncate-cell (str (or c "")) w) w))
+                                     (concat cells (repeat ""))
+                                     col-widths))))
+        header-line (render-row headers)
+        separator (str/join "  " (map #(apply str (repeat % \─)) col-widths))
+        data-lines (map render-row rows)
+        body (str/join "\n" (cons header-line (cons separator data-lines)))
+        result (str "<pre>" body "</pre>")]
+    (if (<= (count result) 4000)
+      result
+      ;; Fallback: bullet list
+      (str/join "\n" (map (fn [row]
+                            (str "• " (str/join ", "
+                                                 (keep (fn [[h v]]
+                                                         (when-not (str/blank? (str v))
+                                                           (str h ": " v)))
+                                                       (map vector headers row)))))
+                          rows)))))
 
 ;; ══════════════════════ SPLIT ══════════════════════
 
