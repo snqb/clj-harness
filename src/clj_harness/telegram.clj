@@ -186,7 +186,11 @@
 
 (defn inline-keyboard
   "Build InlineKeyboardMarkup from rows of buttons.
-   Each button is [label {:keys [url callback_data]}] or [label callback-data].
+   Each button can be:
+     [label callback-data]           — string shorthand
+     [label {:url \"...\"}]           — URL button
+     [label {:callback_data \"...\"}]  — callback button
+     {:text \"...\" :callback_data \"...\"} — map form (for compatibility)
    Example:
    (inline-keyboard [[\"📞 Позвонить\" {:url \"tel:+996...\"}]
                      [\"🗺 2GIS\" {:url \"https://2gis.kg/...\"}]])"
@@ -194,10 +198,21 @@
   {"inline_keyboard"
    (mapv (fn [row]
            (mapv (fn [btn]
-                   (let [[label opts] (if (string? (second btn))
-                                        [(first btn) {:callback_data (second btn)}]
-                                        [(first btn) (second btn)])]
-                     (inline-button label opts)))
+                   (cond
+                     ;; Map form: {:text "..." :callback_data "..."} or {:text "..." :url "..."}
+                     (and (map? btn) (contains? btn :text))
+                     (cond-> {"text" (:text btn)}
+                       (:callback_data btn) (assoc "callback_data" (:callback_data btn))
+                       (:url btn) (assoc "url" (:url btn)))
+
+                     ;; Vector form: [label opts] or [label callback-string]
+                     (vector? btn)
+                     (let [[label opts] (if (string? (second btn))
+                                          [(first btn) {:callback_data (second btn)}]
+                                          [(first btn) (second btn)])]
+                       (inline-button label opts))
+
+                     :else (inline-button (str btn) (str btn))))
                  row))
          rows)})
 
@@ -231,11 +246,14 @@
    Options:
      :offset  — update_id offset (only newer)
      :timeout — long poll timeout in seconds (default 30)
-     :limit   — max updates (default 10)"
-  [& {:keys [offset timeout limit]
+     :limit   — max updates (default 10)
+     :allowed-updates — vector of update types to receive (default all)
+                        e.g. [\"message\" \"callback_query\"]"
+  [& {:keys [offset timeout limit allowed-updates]
       :or {timeout 45 limit 10}}]
   (let [body (cond-> {"timeout" timeout "limit" limit}
-               offset (assoc "offset" offset))]
+               offset (assoc "offset" offset)
+               allowed-updates (assoc "allowed_updates" allowed-updates))]
     (call "getUpdates" body :timeout-ms 70000)))
 
 (defn- parse-update
@@ -261,16 +279,23 @@
   "Start polling loop. Calls handler-fn for each message.
    handler-fn receives: {:keys [chat-id user-id first-name text]}
 
+   Options:
+     :interval-ms      — delay between poll cycles (default 1500)
+     :allowed-updates  — vector of update types (default all)
+                         e.g. [\"message\" \"callback_query\"]
+
    Returns immediately — runs on current thread.
    Wrap in (future ...) or Thread/start for async."
-  [handler-fn & {:keys [interval-ms] :or {interval-ms 1500}}]
-  (let [init (get-updates :offset -1 :limit 1 :timeout 1)
+  [handler-fn & {:keys [interval-ms allowed-updates] :or {interval-ms 1500}}]
+  (let [init (get-updates :offset -1 :limit 1 :timeout 1
+                          :allowed-updates allowed-updates)
         offset (atom (if-let [u (first (get init "result" []))]
                        (inc (get u "update_id")) 0))]
     (log/info :poll-start :offset @offset)
     (while true
       (try
-        (let [resp (get-updates :offset @offset)]
+        (let [resp (get-updates :offset @offset
+                                :allowed-updates allowed-updates)]
           (doseq [u (get resp "result" [])]
             (try
               (when-let [parsed (parse-update u)]
@@ -423,10 +448,17 @@
 (defn start-polling
   "Convenience: start bot polling with a make-handler config.
 
+   Options:
+     :interval-ms     — poll interval (default 1500)
+     :allowed-updates — vector of update types (default all)
+
    Example:
    (tg/start-polling
      {:commands {\"/start\" handle-start}
       :agent-fn agent-ask-fn
-      :streaming? true})"
-  [handler-config & {:keys [interval-ms] :or {interval-ms 1500}}]
-  (poll-loop (make-handler handler-config) :interval-ms interval-ms))
+      :streaming? true}
+     :allowed-updates [\"message\" \"callback_query\"])"
+  [handler-config & {:keys [interval-ms allowed-updates] :or {interval-ms 1500}}]
+  (poll-loop (make-handler handler-config)
+             :interval-ms interval-ms
+             :allowed-updates allowed-updates))
