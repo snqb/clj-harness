@@ -114,7 +114,17 @@
   [ch stream-cb]
   (let [content-sb (StringBuilder.)
         tc-chunks (atom {})
-        finish-reason (atom nil)]
+        finish-reason (atom nil)
+        ;; stream-cb fires per text delta (hundreds of times). A throwing
+        ;; callback must not break the stream, but must also not vanish
+        ;; silently — log the first failure only, to avoid log spam.
+        cb-failed? (atom false)
+        safe-cb (fn [chunk]
+                  (try (stream-cb chunk)
+                       (catch Exception e
+                         (when (compare-and-set! cb-failed? false true)
+                           (log/warn e :stream-cb-failed
+                                     :note "further failures suppressed for this stream")))))]
     (loop []
       (let [msg (<!! ch)]
         (when msg
@@ -125,7 +135,7 @@
             (when delta
               (when (:content delta)
                 (.append content-sb (:content delta))
-                (try (stream-cb (:content delta)) (catch Exception _)))
+                (safe-cb (:content delta)))
               (when (:tool_calls delta)
                 (doseq [tc (:tool_calls delta)]
                   (let [idx (get tc :index 0)
@@ -164,7 +174,9 @@
   (chan (sliding-buffer 64)))
 
 (defn- emit!
-  "Emit a typed event into the events channel if present."
+  "Emit a typed event into the events channel if present.
+   Best-effort: a full/closed channel is intentionally ignored — events
+   are optional diagnostics and must never block or break the agent loop."
   [events> event]
   (when events>
     (try (>!! events> event) (catch Exception _))))
