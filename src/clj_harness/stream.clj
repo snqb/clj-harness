@@ -133,6 +133,13 @@
                 delta (when (seq choices) (:delta (first choices)))
                 finish (when (seq choices) (:finish_reason (first choices)))]
             (when delta
+              ;; Reasoning models (GLM-5.2, o1, DeepSeek-R1) send thinking/reasoning
+              ;; in a separate 'reasoning' field, not 'content'. We stream it to the
+              ;; user via stream-cb so they see the model's thought process during
+              ;; tool-calling phases — but don't accumulate it in content-sb because
+              ;; it's not part of the final answer.
+              (when (:reasoning delta)
+                (safe-cb (:reasoning delta)))
               (when (:content delta)
                 (.append content-sb (:content delta))
                 (safe-cb (:content delta)))
