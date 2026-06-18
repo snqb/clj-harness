@@ -5,6 +5,7 @@
    concrete side effects. Inspired by llx (ol.llx.agent.fx)."
   (:require
    [clojure.core.async :refer [put!]]
+   [clojure.tools.logging :as log]
    [clj-harness.tool-loop :as tl]))
 
 ;; ══════════════════════ EFFECT TYPES ══════════════════════
@@ -142,5 +143,7 @@
     (loop []
       (when-let [event (clojure.core.async/<!! events-chan)]
         (when-let [status (event->status event)]
-          (try (status-fn status) (catch Exception _)))
+          (try (status-fn status)
+               (catch Exception e
+                 (log/warn e :status-fn-failed :status status))))
         (recur)))))

@@ -182,6 +182,20 @@
     :retry      "⚠️ Перепроверяю..."
     "🔄 Обрабатываю..."))
 
+(defn notify-status!
+  "Call status-cb (1-arity, receives a status string) for the given phase.
+   No-op when status-cb is nil. Swallows callback errors but logs them —
+   a broken status callback must never break the agent loop.
+
+   NOTE: status-cb is invoked with a SINGLE string argument. Do not use
+   (apply status-cb (status-text ...)) — apply on a string splatters it
+   into per-character args and breaks 1-arity callbacks."
+  [status-cb phase & args]
+  (when status-cb
+    (try (status-cb (apply status-text phase args))
+         (catch Exception e
+           (log/warn e :status-cb-failed :phase phase)))))
+
 (defn stream-agent
   "Run agent with streaming LLM calls. Handles tool execution loop.
 
@@ -222,10 +236,7 @@
     ;; Streaming path
     (let [{:keys [tool-schemas tool-map]} (tl/with-fetch-result tool-schemas tool-map heap)
           nudge-opts (tl/normalize-nudges nudges nil)
-          status! (fn [phase & args]
-                    (when status-cb
-                      (try (apply status-cb (apply status-text phase args))
-                           (catch Exception _))))]
+          status! (fn [phase & args] (apply notify-status! status-cb phase args))]
       (loop [msgs messages turn 0 nudge-state (gr/make-state)]
         (if (>= turn max-turns)
           (do (status! :max-turns)
