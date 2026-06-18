@@ -183,6 +183,31 @@
       (cond-> (str/join "\n" rewritten)
         trailing-newline? (str "\n")))))
 
+(defn tables->bullets
+  "Rewrite Markdown tables into plain-text bullet lists (no HTML).
+   Used by strip-md for plain-text previews where <pre> blocks aren't
+   appropriate. Non-table pipe text is left untouched."
+  [text]
+  (letfn [(flush-block [out block]
+            (cond
+              (empty? block) out
+              (markdown-table-block? block) (conj out (table-block->bullets block))
+              :else (into out block)))]
+    (let [lines (str/split-lines (or text ""))
+          trailing-newline? (str/ends-with? (or text "") "\n")
+          rewritten (loop [remaining lines
+                           out []
+                           block []]
+                      (if-let [line (first remaining)]
+                        (if (pipe-row? line)
+                          (recur (rest remaining) out (conj block line))
+                          (recur (rest remaining)
+                                 (conj (flush-block out block) line)
+                                 []))
+                        (flush-block out block)))]
+      (cond-> (str/join "\n" rewritten)
+        trailing-newline? (str "\n")))))
+
 ;; ══════════════════════ MARKDOWN → TELEGRAM HTML ══════════════════════
 
 (def ^:private inline-code-placeholder-prefix "◊ICODE◊")
@@ -298,10 +323,12 @@
   "Strip markdown syntax for readable plain-text preview.
    Used during streaming mid-edits as a safety fallback.
    With Rich Message Drafts, most markdown renders natively,
-   so this is only needed for legacy editMessageText paths."
+   so this is only needed for legacy editMessageText paths.
+   Markdown tables are first rewritten as bullet lists so the separator
+   row (| --- |) doesn't leak into the plain-text preview."
   [text]
   (reduce (fn [t [pat repl]] (str/replace t pat repl))
-          (or text "")
+          (tables->bullets (or text ""))
           md-strip-patterns))
 
 ;; ══════════════════════ STREAMING PREVIEW ══════════════════════
