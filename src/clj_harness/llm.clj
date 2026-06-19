@@ -5,11 +5,15 @@
    Provider config is data, not code — add new providers by adding a map entry.
 
    core-agent is the base middleware handler: raw LLM call, no tool iteration.
-   It wraps llm and normalizes the response to {:content :tool-calls :finish}."
+   It wraps llm and normalizes the response to {:content :tool-calls :finish :usage}.
+
+   Observability: every LLM call emits an :llm-call event via observe/record!
+   with model, latency, and token usage (when available from the provider)."
   (:require
    [cheshire.core :as json]
    [clojure.tools.logging :as log]
-   [clj-harness.infra :as infra :refer [cfg]]))
+   [clj-harness.infra :as infra :refer [cfg]]
+   [clj-harness.observe :as observe]))
 
 ;; ══════════════════════ PROVIDER CONFIG ══════════════════════
 
@@ -59,15 +63,34 @@
 
 (defn core-agent
   "Base middleware handler: raw LLM call with no tool iteration.
-   Normalizes provider response to {:content :tool-calls :finish}.
+   Normalizes provider response to {:content :tool-calls :finish :usage}.
 
    This is the innermost handler in the middleware stack — it talks to the LLM,
-   extracts the assistant message, and passes control back to the tool loop."
-  [{:keys [model messages tools provider force-tool?] :or {provider :openrouter}}]
-  (let [resp (llm model messages tools :provider provider :force-tool? force-tool?)
+   extracts the assistant message, and passes control back to the tool loop.
+
+   Emits :llm-call observe events with timing + token usage for observability.
+   This is the single chokepoint that ALL sync paths funnel through."
+  [{:keys [model messages tools provider force-tool? dialogue-id trace-id]
+    :or {provider :openrouter}}]
+  (let [t0 (System/nanoTime)
+        resp (llm model messages tools :provider provider :force-tool? force-tool?)
         choice (first (get resp "choices"))
-        msg (get choice "message")]
+        msg (get choice "message")
+        usage (get resp "usage")
+        latency-ms (int (/ (- (System/nanoTime) t0) 1e6))]
+    (observe/record!
+     {:type :llm-call
+      :dialogue-id dialogue-id
+      :trace-id trace-id
+      :model (resolve-model model)
+      :provider provider
+      :latency-ms latency-ms
+      :prompt-tokens (get usage "prompt_tokens")
+      :completion-tokens (get usage "completion_tokens")
+      :total-tokens (get usage "total_tokens")
+      :stream? false})
     {:content (get msg "content")
      :reasoning-content (get msg "reasoning_content")
      :tool-calls (get msg "tool_calls")
-     :finish (get choice "finish_reason")}))
+     :finish (get choice "finish_reason")
+     :usage usage}))

@@ -109,12 +109,16 @@
 (defn- consume-stream
   "Consume a llm-stream channel: parse OpenAI SSE chunks, accumulate
    content, tool_calls, and call stream-cb.
-   Returns {:content ... :tool-calls ... :finish ...}.
-   Blocks until stream completes."
+   Returns {:content ... :tool-calls ... :finish ... :usage ...}.
+   Blocks until stream completes.
+
+   Captures :usage from the final SSE chunk (DeepSeek/OpenRouter send
+   token counts in the last data frame before [DONE])."
   [ch stream-cb]
   (let [content-sb (StringBuilder.)
         tc-chunks (atom {})
         finish-reason (atom nil)
+        usage-atom (atom nil)
         ;; stream-cb fires per text delta (hundreds of times). A throwing
         ;; callback must not break the stream, but must also not vanish
         ;; silently — log the first failure only, to avoid log spam.
@@ -128,6 +132,9 @@
     (loop []
       (let [msg (<!! ch)]
         (when msg
+          ;; Capture usage from any chunk that carries it (typically the last)
+          (when (:usage msg)
+            (reset! usage-atom (:usage msg)))
           ;; Parse OpenAI chunk format: {:choices [{:delta {:content "..." :tool_calls [...]}}]}
           (let [choices (:choices msg)
                 delta (when (seq choices) (:delta (first choices)))
@@ -166,7 +173,8 @@
                                   (get chunks i))))]
       {:content (.toString content-sb)
        :tool-calls (when (seq accumulated-tc) accumulated-tc)
-       :finish (or @finish-reason "stop")})))
+       :finish (or @finish-reason "stop")
+       :usage @usage-atom})))
 
 ;; ══════════════════════ EVENT BUS ══════════════════════
 
@@ -243,7 +251,7 @@
      :nudges        — full guardrails under the public nudges name; false disables.
 
    Returns accumulated response string."
-  [& {:keys [model messages tool-map tool-schemas stream-cb status-cb events> provider max-turns max-tokens heap abort-signal nudges dialogue-id]
+  [& {:keys [model messages tool-map tool-schemas stream-cb status-cb events> provider max-turns max-tokens heap abort-signal nudges dialogue-id trace-id]
       :or {provider :deepseek max-turns 10 max-tokens 4096 nudges true}}]
   (if-not stream-cb
     ;; Non-streaming fallback: use regular LLM
@@ -268,6 +276,7 @@
                 inject-msgs (if (seq steering-msgs)
                               (into msgs steering-msgs)
                               msgs)
+                llm-t0 (System/nanoTime)
                 resp (consume-stream
                       (llm-stream :model (llm/resolve-model model)
                                   :messages inject-msgs :tools tool-schemas
@@ -275,6 +284,19 @@
                       (fn [delta]
                         (stream-cb delta)
                         (emit! events> {:type :text/delta :text delta :dialogue-id dialogue-id})))
+                llm-latency-ms (int (/ (- (System/nanoTime) llm-t0) 1e6))
+                _ (observe/record!
+                   {:type :llm-call
+                    :dialogue-id dialogue-id
+                    :trace-id trace-id
+                    :model (llm/resolve-model model)
+                    :provider provider
+                    :latency-ms llm-latency-ms
+                    :prompt-tokens (get-in resp [:usage :prompt_tokens])
+                    :completion-tokens (get-in resp [:usage :completion_tokens])
+                    :total-tokens (get-in resp [:usage :total_tokens])
+                    :stream? true
+                    :turn turn})
                 content (:content resp)
                 cfg (tl/guardrail-config tool-map nudge-opts nudge-state)
                 checked (when nudge-opts (gr/check-response nudge-state cfg resp))

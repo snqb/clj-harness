@@ -2,21 +2,27 @@
   "Middleware stack — composable functions that wrap the core agent handler.
 
    Each middleware = (fn [handler] => handler). They form a pipeline:
-     core-agent → wrap-tools → wrap-retry → wrap-logging
+     core-agent → wrap-tools → wrap-retry → wrap-trace-id → wrap-observability → wrap-logging
 
    Key insight: middleware only knows about its own tools and the handler contract,
    not about the rest of the stack. wrap-tools receives the handler as a parameter
-   and never calls llm or core-agent directly."
+   and never calls llm or core-agent directly.
+
+   Observability middleware:
+     wrap-trace-id        — stamps a :trace-id UUID on ctx (outermost, shared by all layers)
+     wrap-observability   — times the call, emits mulog events, attaches :latency-ms to result"
   (:require
    [clojure.tools.logging :as log]
    [clojure.core.async :refer [chan sliding-buffer close!]]
+   [com.brunobonacci.mulog :as u]
    [clj-harness.agent-loop :as aloop]
    [clj-harness.guardrails :as gr]
    [clj-harness.infra :as infra :refer [cfg]]
    [clj-harness.mcp :as mcp]
    [clj-harness.observe :as observe]
    [clj-harness.tool-loop :as tl]
-   [malli.json-schema :as mjs]))
+   [malli.json-schema :as mjs])
+  (:import [java.util UUID]))
 
 ;; ══════════════════════ TOOL LOOP ══════════════════════
 
@@ -158,8 +164,79 @@
           resp (handler ctx)]
       (log/info :turn-complete :msgs (count (:messages ctx))
                 :finish (:finish resp)
-                :elapsed (- (System/currentTimeMillis) t0))
+                :elapsed (- (System/currentTimeMillis) t0)
+                :trace-id (:trace-id ctx))
       resp)))
+
+;; ══════════════════════ OBSERVABILITY ══════════════════════
+
+(defn wrap-trace-id
+  "Middleware: inject a :trace-id UUID into ctx if not already present.
+   All inner middleware and all mulog/observe events share this id,
+   enabling full request trajectory correlation.
+
+   Outermost in the observability layer — sits between wrap-retry and
+   wrap-observability so each retry attempt shares one trace-id."
+  [handler]
+  (fn [ctx]
+    (let [trace-id (or (:trace-id ctx) (str (UUID/randomUUID)))
+          ctx' (assoc ctx :trace-id trace-id)]
+      (-> (handler ctx')
+          (assoc :trace-id trace-id)))))
+
+(defn wrap-observability
+  "Middleware: structured observability via mulog + observe.
+
+   Emits:
+     :agent.turn/start  — trace-id, model, dialogue-id
+     :agent.turn/end    — trace-id, model, latency-ms, tokens, tool-calls, finish, ok
+     :agent.turn/error  — trace-id, model, latency-ms, error-class, error-msg
+
+   Also pushes :turn-complete to observe/record! for the dashboard ring buffer.
+
+   Attaches :latency-ms and :trace-id to the result map so downstream
+   middleware (wrap-logging) can read them."
+  [handler]
+  (fn [{:keys [trace-id model dialogue-id] :as ctx}]
+    (let [t0 (System/nanoTime)]
+      (u/log ::agent.turn.start :trace-id trace-id :model model :dialogue-id dialogue-id)
+      (try
+        (let [result (handler ctx)
+              lat-ms (int (/ (- (System/nanoTime) t0) 1e6))
+              tokens (or (get-in result [:usage :total_tokens])
+                         (get result :total-tokens) 0)
+              out (assoc result :latency-ms lat-ms :trace-id trace-id)]
+          (u/log ::agent.turn.end
+                 :trace-id trace-id :model model :dialogue-id dialogue-id
+                 :latency-ms lat-ms :tokens tokens
+                 :tool-calls (count (:tool-results result))
+                 :finish (:finish result) :ok true)
+          (observe/record!
+           {:type :turn-complete
+            :dialogue-id dialogue-id
+            :trace-id trace-id
+            :model model
+            :latency-ms lat-ms
+            :tokens tokens
+            :tool-calls (count (:tool-results result))
+            :finish (:finish result)})
+          out)
+        (catch Exception e
+          (let [lat-ms (int (/ (- (System/nanoTime) t0) 1e6))]
+            (u/log ::agent.turn.error
+                   :trace-id trace-id :model model :dialogue-id dialogue-id
+                   :latency-ms lat-ms
+                   :error-class (.getSimpleName (class e))
+                   :error-msg (ex-message e))
+            (observe/record!
+             {:type :error
+              :dialogue-id dialogue-id
+              :trace-id trace-id
+              :model model
+              :latency-ms lat-ms
+              :error-class (.getSimpleName (class e))
+              :error-msg (ex-message e)})
+            (throw e)))))))
 
 ;; ══════════════════════ EFFECT-DRIVEN TOOL LOOP (v2) ══════════════════════
 

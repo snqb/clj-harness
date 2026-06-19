@@ -106,12 +106,32 @@
         tool-ok (count (filter :ok? tool-calls))
         tool-fail (- (count tool-calls) tool-ok)
         nudges (count (filter #(= :nudge (:type %)) all))
-        errors (count (filter #(= :error (:type %)) all))]
+        errors (count (filter #(= :error (:type %)) all))
+        llm-calls (filter #(= :llm-call (:type %)) all)
+        llm-stream (count (filter :stream? llm-calls))
+        llm-sync (- (count llm-calls) llm-stream)
+        total-tokens (reduce + 0 (keep :total-tokens llm-calls))
+        prompt-tokens (reduce + 0 (keep :prompt-tokens llm-calls))
+        completion-tokens (reduce + 0 (keep :completion-tokens llm-calls))
+        latencies (keep :latency-ms llm-calls)
+        turns (filter #(= :turn-complete (:type %)) all)
+        turn-latencies (keep :latency-ms turns)]
     {:dialogues (count dialogues)
      :messages msg-in
      :tools {:total (count tool-calls)
              :ok tool-ok
              :fail tool-fail}
+     :llm {:total (count llm-calls)
+           :stream llm-stream
+           :sync llm-sync
+           :total-tokens total-tokens
+           :prompt-tokens prompt-tokens
+           :completion-tokens completion-tokens
+           :avg-latency-ms (when (seq latencies) (int (/ (reduce + latencies) (count latencies))))
+           :max-latency-ms (when (seq latencies) (reduce max latencies))}
+     :turns {:total (count turns)
+             :avg-latency-ms (when (seq turn-latencies)
+                               (int (/ (reduce + turn-latencies) (count turn-latencies))))}
      :nudges nudges
      :errors errors
      :events (count all)

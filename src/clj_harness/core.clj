@@ -7,6 +7,7 @@
    [clojure.string :as str]
    [clojure.core.async :refer [chan close! >!!]]
    [clojure.tools.logging :as log]
+   [com.brunobonacci.mulog :as u]
    [clj-harness.compact :as compact]
    [clj-harness.dashboard :as dashboard]
    [clj-harness.heap :as heap]
@@ -30,6 +31,8 @@
 (def wrap-tools mw/wrap-tools)
 (def wrap-retry mw/wrap-retry)
 (def wrap-logging mw/wrap-logging)
+(def wrap-trace-id mw/wrap-trace-id)
+(def wrap-observability mw/wrap-observability)
 (def make-session memory/make-session)
 (def session-add! memory/session-add!)
 (def session-messages memory/session-messages)
@@ -194,6 +197,8 @@
                         (merge {:model resolved-model :provider resolved-provider} ctx)))
                      ((if effects? mw/wrap-tools-v2 mw/wrap-tools) tools tool-post-process nudges)
                      (mw/wrap-retry max-retries)
+                     mw/wrap-trace-id
+                     mw/wrap-observability
                      mw/wrap-logging)
         sessions-atom (atom {})
         auto-save (when persistence
@@ -235,7 +240,9 @@
    Override options: :model :provider :max-turns"
   [bot user-id text & {:keys [model provider max-turns] :as overrides}]
   (let [dialogue-id (str user-id "-" (System/currentTimeMillis))
-        _ (observe/record! {:type :msg-in :dialogue-id dialogue-id :user user-id :text text})
+        trace-id (str (java.util.UUID/randomUUID))
+        _ (observe/record! {:type :msg-in :dialogue-id dialogue-id :trace-id trace-id :user user-id :text text})
+        _ (u/log ::agent.msg-in :trace-id trace-id :dialogue-id dialogue-id :user user-id :text-len (count text))
         session (get-or-create-session bot user-id)
         _ (memory/session-add! session "user" text)
         msgs (prepare-messages bot user-id text session)
@@ -249,14 +256,21 @@
                    (when session-heap {:heap session-heap})
                    (when max-turns {:max-turns max-turns})
                    {:nudges (:nudges bot)}
-                   {:dialogue-id dialogue-id}
+                   {:dialogue-id dialogue-id
+                    :trace-id trace-id}
                    overrides)
         resp ((:pipeline bot) ctx)
         result (or (:content resp) "Sorry, something went wrong.")
-        tool-outputs (vec (keep :structured (:tool-results resp)))]
+        tool-outputs (vec (keep :structured (:tool-results resp)))
+        total-elapsed (- (System/currentTimeMillis) t0)]
     (observe/record!
-     {:type :msg-out :dialogue-id dialogue-id
-      :text-len (count result) :total-elapsed (- (System/currentTimeMillis) t0)})
+     {:type :msg-out :dialogue-id dialogue-id :trace-id trace-id
+      :text-len (count result) :total-elapsed total-elapsed})
+    (u/log ::agent.msg-out
+     :trace-id trace-id :dialogue-id dialogue-id
+     :text-len (count result) :total-elapsed-ms total-elapsed
+     :tokens (or (get-in resp [:usage :total_tokens]) 0)
+     :ok true)
     (memory/session-add! session "assistant" result)
     (save-session! bot user-id session)
     ;; GC expired heap entries
@@ -280,7 +294,10 @@
   [bot user-id text stream-cb & {:keys [status-cb events> abort-signal]}]
   (try
     (let [dialogue-id (str user-id "-" (System/currentTimeMillis))
-          _ (observe/record! {:type :msg-in :dialogue-id dialogue-id :user user-id :text text})
+          trace-id (str (java.util.UUID/randomUUID))
+          _ (observe/record! {:type :msg-in :dialogue-id dialogue-id :trace-id trace-id :user user-id :text text})
+          _ (u/log ::agent.msg-in
+             :trace-id trace-id :dialogue-id dialogue-id :user user-id :text-len (count text))
           session (get-or-create-session bot user-id)
           _ (memory/session-add! session "user" text)
           msgs (prepare-messages bot user-id text session)
@@ -299,14 +316,20 @@
                   :heap session-heap
                   :abort-signal abort-signal
                   :nudges (:nudges bot)
-                  :dialogue-id dialogue-id)
+                  :dialogue-id dialogue-id
+                  :trace-id trace-id)
           result-text (if (map? result) (:content result) result)
           tool-outputs (if (map? result)
                          (vec (keep :structured (:tool-results result)))
-                         [])]
+                         [])
+          total-elapsed (- (System/currentTimeMillis) t0)]
       (observe/record!
-       {:type :msg-out :dialogue-id dialogue-id
-        :text-len (count (or result-text "")) :total-elapsed (- (System/currentTimeMillis) t0)})
+       {:type :msg-out :dialogue-id dialogue-id :trace-id trace-id
+        :text-len (count (or result-text "")) :total-elapsed total-elapsed})
+      (u/log ::agent.msg-out
+       :trace-id trace-id :dialogue-id dialogue-id
+       :text-len (count (or result-text "")) :total-elapsed-ms total-elapsed
+       :ok (boolean result-text))
       (when result-text
         (memory/session-add! session "assistant" result-text)
         (save-session! bot user-id session))
@@ -316,6 +339,9 @@
         result-text))
     (catch Exception e
       (log/error e :stream-error)
+      (u/log ::agent.stream-error
+       :dialogue-id nil :error-class (.getSimpleName (class e))
+       :error-msg (ex-message e))
       nil)))
 
 (defn handle-message-async
