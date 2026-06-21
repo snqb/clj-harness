@@ -363,14 +363,23 @@
                       (log/info :force-final-response :turn turn)
                       (:content force-resp))
 
-                    ;; Repeated tool loop (not near max-turns): abort with message
+                    ;; Repeated tool loop (not near max-turns): force text response
+                    ;; instead of showing an error — the agent has data, just needs
+                    ;; to write the response
                     all-same?
-                    (do
-                      (log/warn :repeated-tool-abort :tool tool-name :count max-repeated-tool-calls :turn turn)
-                      (emit! events> {:type :error/repeated-tool :turn turn :dialogue-id dialogue-id
-                                      :tool-name tool-name :count max-repeated-tool-calls})
-                      (str "⚠️ Зацикливание поиска («" tool-name "» ×" max-repeated-tool-calls "). "
-                           "Пожалуйста, уточните запрос."))
+                    (let [force-msg {"role" "system"
+                                     "content" (str "Ты вызвал «" tool-name "» " max-repeated-tool-calls
+                                                    " раз подряд. Хватит искать — у тебя уже есть результаты. "
+                                                    "НЕМЕДЛЕННО напиши ответ пользователю на основе найденных данных.")}
+                          force-resp (consume-stream
+                                      (llm-stream :model (llm/resolve-model model)
+                                                  :messages (conj inject-msgs force-msg) :tools []
+                                                  :provider provider :max-tokens max-tokens)
+                                      (fn [delta]
+                                        (stream-cb delta)
+                                        (emit! events> {:type :text/delta :text delta :dialogue-id dialogue-id})))]
+                      (log/warn :repeated-tool-force-response :tool tool-name :count max-repeated-tool-calls :turn turn)
+                      (:content force-resp))
 
                     ;; Normal tool execution
                     :else
