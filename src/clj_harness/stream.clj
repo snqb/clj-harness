@@ -267,7 +267,7 @@
         (if (>= turn max-turns)
           (do (status! :max-turns)
               (emit! events> {:type :phase/max-turns :turn turn :dialogue-id dialogue-id})
-              "⚠️ Reached max turns. Try a more specific query.")
+              "⚠️ Достигнут лимит ходов. Уточните запрос — например, добавьте цену или модель.")
           (let [_ (status! (if (zero? turn) :starting :after-tool))
                 _ (when (zero? turn) (emit! events> {:type :phase/starting :dialogue-id dialogue-id}))
                 ;; Drain steering queue — inject corrections before this LLM call
@@ -335,53 +335,69 @@
                                      last-tools))
               (:execute :disabled)
               (if (seq calls)
-                ;; Guard: abort when same tool called too many times in a row
-                (let [tool-name (gr/tool-call-name (first calls))
-                      last-tools' (conj last-tools tool-name)
-                      recent-same (take-last max-repeated-tool-calls last-tools')
-                      all-same? (and (= (count recent-same) max-repeated-tool-calls)
-                                     (apply = recent-same))]
-                  (if all-same?
-                    (do
-                      (log/warn :repeated-tool-abort :tool tool-name :count max-repeated-tool-calls :turn turn)
-                      (emit! events> {:type :error/repeated-tool :turn turn :dialogue-id dialogue-id
-                                      :tool-name tool-name :count max-repeated-tool-calls})
-                      (str "⚠️ Зацикливание поиска («" tool-name "» ×" max-repeated-tool-calls "). "
-                           "Пожалуйста, уточните запрос."))
-                    ;; Normal tool execution
-                    (let [_ (status! :tool-call :tool-name tool-name)
-                          _ (emit! events> {:type :tool/start :turn turn :dialogue-id dialogue-id :tool-name tool-name})
-                          normalized-calls (if nudge-opts
-                                             (:tool-calls checked)
-                                             (mapv tl/loose-normalize-tool-call calls))
-                          results (mapv (fn [call]
-                                          (let [t0 (System/currentTimeMillis)
-                                                r (tl/execute-tool-call tool-map nil heap call
-                                                                        abort-signal nil)
-                                                elapsed (- (System/currentTimeMillis) t0)
-                                                ok? (if (map? (:message r))
-                                                      (not (:error (:message r)))
-                                                      true)]
-                                            (emit! events> {:type :tool/end :turn turn :dialogue-id dialogue-id
-                                                            :tool-name (tl/tool-name call) :ok? ok? :elapsed elapsed})
-                                            (observe/record!
-                                             {:type :tool :dialogue-id dialogue-id
-                                              :turn turn
-                                              :name (tl/tool-name call)
-                                              :ok? ok?
-                                              :elapsed elapsed})
-                                            r))
-                                        normalized-calls)
-                          nudge-state' (tl/next-state nudge-state nudge-opts results)
-                          tool-results (mapv :message results)
-                          asst-msg (cond-> {"role" "assistant"
-                                            "tool_calls" (mapv tl/raw-call->api calls)}
-                                     (not (str/blank? content))
-                                     (assoc "content" content))]
-                      (recur (into (conj msgs asst-msg) tool-results)
-                             (inc turn)
-                             nudge-state'
-                             last-tools'))))
+                ;; Force final response when near max-turns — don't let the agent
+                ;; burn all turns on tool calls with no text response
+                (if (>= turn (- max-turns 2))
+                  (let [force-msg {"role" "system"
+                                   "content" (str "У тебя остался 1 ход. НЕ ВЫЗЫВАЙ больше инструменты. "
+                                                  "Немедленно напиши ответ пользователю на основе уже найденных данных. "
+                                                  "Если данных мало — извинись и предложи уточнить запрос.")}
+                        force-resp (consume-stream
+                                    (llm-stream :model (llm/resolve-model model)
+                                                :messages (conj inject-msgs force-msg) :tools []
+                                                :provider provider :max-tokens max-tokens)
+                                    (fn [delta]
+                                      (stream-cb delta)
+                                      (emit! events> {:type :text/delta :text delta :dialogue-id dialogue-id})))]
+                    (log/info :force-final-response :turn turn)
+                    (:content force-resp))
+                  ;; Guard: abort when same tool called too many times in a row
+                  (let [tool-name (gr/tool-call-name (first calls))
+                        last-tools' (conj last-tools tool-name)
+                        recent-same (take-last max-repeated-tool-calls last-tools')
+                        all-same? (and (= (count recent-same) max-repeated-tool-calls)
+                                       (apply = recent-same))]
+                    (if all-same?
+                      (do
+                        (log/warn :repeated-tool-abort :tool tool-name :count max-repeated-tool-calls :turn turn)
+                        (emit! events> {:type :error/repeated-tool :turn turn :dialogue-id dialogue-id
+                                        :tool-name tool-name :count max-repeated-tool-calls})
+                        (str "⚠️ Зацикливание поиска («" tool-name "» ×" max-repeated-tool-calls "). "
+                             "Пожалуйста, уточните запрос."))
+                      ;; Normal tool execution
+                      (let [_ (status! :tool-call :tool-name tool-name)
+                            _ (emit! events> {:type :tool/start :turn turn :dialogue-id dialogue-id :tool-name tool-name})
+                            normalized-calls (if nudge-opts
+                                               (:tool-calls checked)
+                                               (mapv tl/loose-normalize-tool-call calls))
+                            results (mapv (fn [call]
+                                            (let [t0 (System/currentTimeMillis)
+                                                  r (tl/execute-tool-call tool-map nil heap call
+                                                                          abort-signal nil)
+                                                  elapsed (- (System/currentTimeMillis) t0)
+                                                  ok? (if (map? (:message r))
+                                                        (not (:error (:message r)))
+                                                        true)]
+                                              (emit! events> {:type :tool/end :turn turn :dialogue-id dialogue-id
+                                                              :tool-name (tl/tool-name call) :ok? ok? :elapsed elapsed})
+                                              (observe/record!
+                                               {:type :tool :dialogue-id dialogue-id
+                                                :turn turn
+                                                :name (tl/tool-name call)
+                                                :ok? ok?
+                                                :elapsed elapsed})
+                                              r))
+                                          normalized-calls)
+                            nudge-state' (tl/next-state nudge-state nudge-opts results)
+                            tool-results (mapv :message results)
+                            asst-msg (cond-> {"role" "assistant"
+                                              "tool_calls" (mapv tl/raw-call->api calls)}
+                                       (not (str/blank? content))
+                                       (assoc "content" content))]
+                        (recur (into (conj msgs asst-msg) tool-results)
+                               (inc turn)
+                               nudge-state'
+                               last-tools')))))
                 ;; No tool calls — final response
                 (do (emit! events> {:type :phase/done :turn turn :dialogue-id dialogue-id})
                     content)))))))))
