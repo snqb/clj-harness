@@ -299,6 +299,44 @@
                   (send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup))
                 chunks)))))))
 
+;; ══════════════════════ PHOTOS / MEDIA ══════════════════════
+
+(defn send-media-group
+  "Send a group of photos as an album (up to 10).
+   Each item: {:url \"https://...\" :caption \"optional\"}
+   Telegram downloads photos by URL — no upload needed.
+   Returns vector of sent Message objects, or nil on failure."
+  [chat-id items & {:keys [reply-to]}]
+  (let [media (->> items
+                   (take 10)
+                   (mapv (fn [{:keys [url caption]}]
+                          (cond-> {"type" "photo" "media" url}
+                            caption (assoc "caption" caption)
+                            caption (assoc "parse_mode" "HTML")))))
+        body (cond-> {"chat_id" (str chat-id)
+                      "media" (json/generate-string media)}
+               reply-to (assoc "reply_to_message_id" (str reply-to)))]
+    (try
+      (call "sendMediaGroup" body)
+      (catch Exception e
+        (log/error e :send-media-group-failed)
+        nil))))
+
+(defn send-photo
+  "Send a single photo by URL.
+   Options: :caption (HTML), :reply-to, :reply-markup."
+  [chat-id photo-url & {:keys [caption reply-to reply-markup]}]
+  (let [body (cond-> {"chat_id" (str chat-id) "photo" photo-url}
+               caption (assoc "caption" caption)
+               caption (assoc "parse_mode" "HTML")
+               reply-to (assoc "reply_to_message_id" (str reply-to))
+               reply-markup (assoc "reply_markup" reply-markup))]
+    (try
+      (call "sendPhoto" body)
+      (catch Exception e
+        (log/error e :send-photo-failed)
+        nil))))
+
 ;; ══════════════════════ POLLING ══════════════════════
 
 (defn get-updates
