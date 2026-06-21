@@ -336,35 +336,44 @@
               (:execute :disabled)
               (if (seq calls)
                 ;; Force final response when near max-turns — don't let the agent
-                ;; burn all turns on tool calls with no text response
-                (if (>= turn (- max-turns 2))
-                  (let [force-msg {"role" "system"
-                                   "content" (str "У тебя остался 1 ход. НЕ ВЫЗЫВАЙ больше инструменты. "
-                                                  "Немедленно напиши ответ пользователю на основе уже найденных данных. "
-                                                  "Если данных мало — извинись и предложи уточнить запрос.")}
-                        force-resp (consume-stream
-                                    (llm-stream :model (llm/resolve-model model)
-                                                :messages (conj inject-msgs force-msg) :tools []
-                                                :provider provider :max-tokens max-tokens)
-                                    (fn [delta]
-                                      (stream-cb delta)
-                                      (emit! events> {:type :text/delta :text delta :dialogue-id dialogue-id})))]
-                    (log/info :force-final-response :turn turn)
-                    (:content force-resp))
-                  ;; Guard: abort when same tool called too many times in a row
-                  (let [tool-name (gr/tool-call-name (first calls))
-                        last-tools' (conj last-tools tool-name)
-                        recent-same (take-last max-repeated-tool-calls last-tools')
-                        all-same? (and (= (count recent-same) max-repeated-tool-calls)
-                                       (apply = recent-same))]
-                    (if all-same?
-                      (do
-                        (log/warn :repeated-tool-abort :tool tool-name :count max-repeated-tool-calls :turn turn)
-                        (emit! events> {:type :error/repeated-tool :turn turn :dialogue-id dialogue-id
-                                        :tool-name tool-name :count max-repeated-tool-calls})
-                        (str "⚠️ Зацикливание поиска («" tool-name "» ×" max-repeated-tool-calls "). "
-                             "Пожалуйста, уточните запрос."))
-                      ;; Normal tool execution
+                ;; burn all turns on tool calls with no text response.
+                ;; This also takes priority over the repeated-tool-abort guard:
+                ;; if the agent is near max-turns AND repeating tools, we still
+                ;; try to get a text response instead of just showing an error.
+                (let [tool-name (gr/tool-call-name (first calls))
+                      last-tools' (conj last-tools tool-name)
+                      recent-same (take-last max-repeated-tool-calls last-tools')
+                      all-same? (and (= (count recent-same) max-repeated-tool-calls)
+                                     (apply = recent-same))
+                      near-max? (>= turn (- max-turns 2))]
+                  (cond
+                    ;; Near max-turns: force text response regardless of loops
+                    near-max?
+                    (let [force-msg {"role" "system"
+                                     "content" (str "У тебя остался 1 ход. НЕ ВЫЗЫВАЙ больше инструменты. "
+                                                    "Немедленно напиши ответ пользователю на основе уже найденных данных. "
+                                                    "Если данных мало — извинись и предложи уточнить запрос.")}
+                          force-resp (consume-stream
+                                      (llm-stream :model (llm/resolve-model model)
+                                                  :messages (conj inject-msgs force-msg) :tools []
+                                                  :provider provider :max-tokens max-tokens)
+                                      (fn [delta]
+                                        (stream-cb delta)
+                                        (emit! events> {:type :text/delta :text delta :dialogue-id dialogue-id})))]
+                      (log/info :force-final-response :turn turn)
+                      (:content force-resp))
+
+                    ;; Repeated tool loop (not near max-turns): abort with message
+                    all-same?
+                    (do
+                      (log/warn :repeated-tool-abort :tool tool-name :count max-repeated-tool-calls :turn turn)
+                      (emit! events> {:type :error/repeated-tool :turn turn :dialogue-id dialogue-id
+                                      :tool-name tool-name :count max-repeated-tool-calls})
+                      (str "⚠️ Зацикливание поиска («" tool-name "» ×" max-repeated-tool-calls "). "
+                           "Пожалуйста, уточните запрос."))
+
+                    ;; Normal tool execution
+                    :else
                       (let [_ (status! :tool-call :tool-name tool-name)
                             _ (emit! events> {:type :tool/start :turn turn :dialogue-id dialogue-id :tool-name tool-name})
                             normalized-calls (if nudge-opts
@@ -397,7 +406,7 @@
                         (recur (into (conj msgs asst-msg) tool-results)
                                (inc turn)
                                nudge-state'
-                               last-tools')))))
+                               last-tools'))))
                 ;; No tool calls — final response
                 (do (emit! events> {:type :phase/done :turn turn :dialogue-id dialogue-id})
                     content)))))))))
