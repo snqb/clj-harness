@@ -418,7 +418,20 @@
                                last-tools'))))
                 ;; No tool calls — final response
                 (do (emit! events> {:type :phase/done :turn turn :dialogue-id dialogue-id})
-                    content)))))))))
+                    (if (str/blank? content)
+                      ;; Empty response with no tool calls — retry once with nudge
+                      (let [nudge-msg {"role" "system"
+                                       "content" "Твой ответ пустой. Напиши подробный ответ пользователю на основе найденных данных. Не возвращай пустой ответ."}
+                            retry-resp (consume-stream
+                                        (llm-stream :model (llm/resolve-model model)
+                                                    :messages (conj inject-msgs nudge-msg) :tools []
+                                                    :provider provider :max-tokens max-tokens)
+                                        (fn [delta]
+                                          (stream-cb delta)
+                                          (emit! events> {:type :text/delta :text delta :dialogue-id dialogue-id})))]
+                        (log/info :empty-response-retry :turn turn)
+                        (:content retry-resp))
+                      content))))))))))
 
 (comment
   ;; Usage example:
