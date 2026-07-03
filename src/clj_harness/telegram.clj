@@ -77,10 +77,51 @@
           :else
           (do (log/error :tg-error status :body (.body resp)) nil))))))
 
+;; ══════════════════════ FORUM TOPICS ══════════════════════
+
+(defn create-forum-topic
+  "Create a new forum topic. Bot must be admin with can_manage_topics.
+   Returns ForumTopic object with message_thread_id, or nil on failure.
+
+   Options:
+     :icon-color         — 0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2, 0xFB6F5F
+     :icon-custom-emoji  — custom emoji id from getForumTopicIconStickers"
+  [chat-id name & {:keys [icon-color icon-custom-emoji]}]
+  (let [body (cond-> {"chat_id" chat-id "name" name}
+               icon-color (assoc "icon_color" icon-color)
+               icon-custom-emoji (assoc "icon_custom_emoji_id" icon-custom-emoji))
+        resp (call "createForumTopic" body)]
+    (get resp "result" resp)))
+
+(defn edit-forum-topic
+  "Edit name and/or icon of an existing topic.
+   Bot needs can_manage_topics (or must be the topic creator)."
+  [chat-id thread-id & {:keys [name icon-custom-emoji]}]
+  (let [body (cond-> {"chat_id" chat-id "message_thread_id" thread-id}
+               name (assoc "name" name)
+               icon-custom-emoji (assoc "icon_custom_emoji_id" icon-custom-emoji))]
+    (call "editForumTopic" body)))
+
+(defn close-forum-topic
+  "Close a forum topic — no new messages can be sent."
+  [chat-id thread-id]
+  (call "closeForumTopic" {"chat_id" chat-id "message_thread_id" thread-id}))
+
+(defn reopen-forum-topic
+  "Reopen a previously closed forum topic."
+  [chat-id thread-id]
+  (call "reopenForumTopic" {"chat_id" chat-id "message_thread_id" thread-id}))
+
+(defn delete-forum-topic
+  "Delete a topic AND ALL its messages. Destructive, irreversible.
+   Requires can_delete_messages admin right."
+  [chat-id thread-id]
+  (call "deleteForumTopic" {"chat_id" chat-id "message_thread_id" thread-id}))
+
 ;; ══════════════════════ RICH MESSAGE API ══════════════════════
 
 (defn send-rich-message
-  "Send a rich formatted message via Telegram's new Rich Messages API.
+  "Send a rich formatted message via Telegram's Rich Messages API.
 
    Telegram natively renders: tables (with alignment), headings, task lists,
    block quotations, footnotes, math formulas, <details> collapsible blocks,
@@ -92,11 +133,12 @@
      :preview      — link preview: true (default) or false
      :reply-to     — message_id to reply to
      :reply-markup — InlineKeyboardMarkup or ReplyKeyboardMarkup
+     :thread-id    — message_thread_id for forum topics
 
    Exactly one of :markdown or :html must be provided.
 
    Returns Telegram Message object or nil on failure."
-  [chat-id & {:keys [markdown html preview reply-to reply-markup]}]
+  [chat-id & {:keys [markdown html preview reply-to reply-markup thread-id]}]
   (let [rich-msg (cond-> {}
                    markdown (assoc "markdown" markdown)
                    html (assoc "html" html)
@@ -104,7 +146,8 @@
         body (cond-> {"chat_id" (str chat-id)
                       "rich_message" rich-msg}
                reply-to (assoc "reply_to_message_id" (str reply-to))
-               reply-markup (assoc "reply_markup" reply-markup))]
+               reply-markup (assoc "reply_markup" reply-markup)
+               thread-id (assoc "message_thread_id" thread-id))]
     (call "sendRichMessage" body)))
 
 (defn send-rich-message-draft
@@ -138,15 +181,17 @@
      :preview     — link preview: true (default) or false
      :reply-to    — message_id to reply to
      :reply_markup — ReplyKeyboardMarkup, InlineKeyboardMarkup, or remove map
+     :thread-id   — message_thread_id for forum topics
 
    Returns Telegram Message object or nil on failure."
-  [chat-id text & {:keys [parse-mode preview reply-to reply_markup]
+  [chat-id text & {:keys [parse-mode preview reply-to reply_markup thread-id]
                    :or {parse-mode "HTML" preview true}}]
   (let [body (cond-> {"chat_id" (str chat-id) "text" text}
                parse-mode (assoc "parse_mode" parse-mode)
                (false? preview) (assoc "disable_web_page_preview" true)
                reply-to (assoc "reply_to_message_id" (str reply-to))
-               reply_markup (assoc "reply_markup" reply_markup))
+               reply_markup (assoc "reply_markup" reply_markup)
+               thread-id (assoc "message_thread_id" thread-id))
         result (call "sendMessage" body)]
     ;; Fallback: if HTML/Markdown fails, retry as plain text
     (when (and (nil? result) parse-mode)
@@ -156,15 +201,16 @@
 
 (defn edit-message
   "Edit an existing message.
-   Options: :parse-mode (\"HTML\" default), :preview (true default), :reply_markup"
-  [chat-id message-id text & {:keys [parse-mode preview reply_markup]
+   Options: :parse-mode (\"HTML\" default), :preview (true default), :reply_markup, :thread-id"
+  [chat-id message-id text & {:keys [parse-mode preview reply_markup thread-id]
                               :or {parse-mode "HTML" preview true}}]
   (let [body (cond-> {"chat_id" (str chat-id)
                       "message_id" (str message-id)
                       "text" text}
                parse-mode (assoc "parse_mode" parse-mode)
                (false? preview) (assoc "disable_web_page_preview" true)
-               reply_markup (assoc "reply_markup" reply_markup))]
+               reply_markup (assoc "reply_markup" reply_markup)
+               thread-id (assoc "message_thread_id" thread-id))]
     (call "editMessageText" body)))
 
 (defn answer-callback-query
@@ -209,8 +255,8 @@
       :or {label "🔄 Новый диалог"
            resize? true
            one-time? true}}]
-  {"keyboard"       [[{"text" label}]]
-   "resize_keyboard"  (boolean resize?)
+  {"keyboard" [[{"text" label}]]
+   "resize_keyboard" (boolean resize?)
    "one_time_keyboard" (boolean one-time?)})
 
 (defn location-keyboard
@@ -219,8 +265,8 @@
   [& {:keys [label resize?]
       :or {label "📍 Отправить геолокацию"
            resize? true}}]
-  {"keyboard"       [[{"text" label "request_location" true}]]
-   "resize_keyboard"  (boolean resize?)})
+  {"keyboard" [[{"text" label "request_location" true}]]
+   "resize_keyboard" (boolean resize?)})
 
 (defn inline-button
   "Create an inline keyboard button map.
@@ -279,16 +325,17 @@
   "Send LLM markdown text via Rich Messages API.
    Telegram natively renders tables, headings, lists, code blocks, etc.
    Falls back to legacy HTML path if Rich Messages unavailable.
-   Options: :reply_markup passed through to send-rich-message.
+   Options: :reply_markup, :thread-id
    Returns sequence of sent Message objects."
-  [chat-id text & {:keys [reply_markup]}]
+  [chat-id text & {:keys [reply_markup thread-id]}]
   (if (str/blank? text)
     (do (log/warn :empty-response) nil)
     ;; Try Rich Messages first (native markdown rendering)
     (let [result (send-rich-message chat-id
                                     :markdown text
                                     :preview false
-                                    :reply-markup reply_markup)]
+                                    :reply-markup reply_markup
+                                    :thread-id thread-id)]
       (if result
         [result]
         ;; Fallback: legacy md→html path
@@ -296,7 +343,7 @@
               chunks (fmt/split-message html)]
           (doall
            (map (fn [chunk]
-                  (send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup))
+                  (send-message chat-id chunk :parse-mode "HTML" :preview false :reply_markup reply_markup :thread-id thread-id))
                 chunks)))))))
 
 ;; ══════════════════════ PHOTOS / MEDIA ══════════════════════
@@ -305,17 +352,19 @@
   "Send a group of photos as an album (up to 10).
    Each item: {:url \"https://...\" :caption \"optional\"}
    Telegram downloads photos by URL — no upload needed.
+   Options: :reply-to, :thread-id
    Returns vector of sent Message objects, or nil on failure."
-  [chat-id items & {:keys [reply-to]}]
+  [chat-id items & {:keys [reply-to thread-id]}]
   (let [media (->> items
                    (take 10)
                    (mapv (fn [{:keys [url caption]}]
-                          (cond-> {"type" "photo" "media" url}
-                            caption (assoc "caption" caption)
-                            caption (assoc "parse_mode" "HTML")))))
+                           (cond-> {"type" "photo" "media" url}
+                             caption (assoc "caption" caption)
+                             caption (assoc "parse_mode" "HTML")))))
         body (cond-> {"chat_id" (str chat-id)
                       "media" (json/generate-string media)}
-               reply-to (assoc "reply_to_message_id" (str reply-to)))]
+               reply-to (assoc "reply_to_message_id" (str reply-to))
+               thread-id (assoc "message_thread_id" thread-id))]
     (try
       (call "sendMediaGroup" body)
       (catch Exception e
@@ -324,13 +373,14 @@
 
 (defn send-photo
   "Send a single photo by URL.
-   Options: :caption (HTML), :reply-to, :reply-markup."
-  [chat-id photo-url & {:keys [caption reply-to reply-markup]}]
+   Options: :caption (HTML), :reply-to, :reply-markup, :thread-id."
+  [chat-id photo-url & {:keys [caption reply-to reply-markup thread-id]}]
   (let [body (cond-> {"chat_id" (str chat-id) "photo" photo-url}
                caption (assoc "caption" caption)
                caption (assoc "parse_mode" "HTML")
                reply-to (assoc "reply_to_message_id" (str reply-to))
-               reply-markup (assoc "reply_markup" reply-markup))]
+               reply-markup (assoc "reply_markup" reply-markup)
+               thread-id (assoc "message_thread_id" thread-id))]
     (try
       (call "sendPhoto" body)
       (catch Exception e
@@ -355,23 +405,25 @@
     (call "getUpdates" body :timeout-ms 70000)))
 
 (defn- parse-update
-  "Extract chat-id, user-id, first-name, text, location from update."
+  "Extract chat-id, user-id, first-name, text, location, thread-id from update."
   [update]
   (when-let [msg (or (get update "message") (get update "edited_message"))]
     (let [chat (get msg "chat")
           user (get msg "from")
-          loc (get msg "location")]
+          loc (get msg "location")
+          thread-id (get msg "message_thread_id")]
       (when loc
         (log/info :parse-update-location :has-location true :lat (get loc "latitude") :lon (get loc "longitude")))
       (cond->
-       {:chat-id    (get chat "id")
-        :user-id    (get user "id")
+       {:chat-id (get chat "id")
+        :user-id (get user "id")
         :first-name (get user "first_name" "друг")
-        :text       (get msg "text")
+        :text (get msg "text")
         :message-id (get msg "message_id")}
-       loc
-       (assoc :location {:lat (get loc "latitude")
-                         :lon (get loc "longitude")})))))
+        thread-id (assoc :thread-id thread-id)
+        loc
+        (assoc :location {:lat (get loc "latitude")
+                          :lon (get loc "longitude")})))))
 
 (defn poll-loop
   "Start polling loop. Calls handler-fn for each message.
@@ -494,20 +546,20 @@
                     result (agent-fn user-id text {:stream-cb stream-cb})
                     final-text (or result @txt)]
                   ;; Final: send rich message to persist (draft is ephemeral)
-                  (if result
-                    (send-rich-message chat-id :markdown result :preview false)
-                    (if (str/blank? @txt)
-                      (send-message chat-id "Извините, не получилось ответить." :parse-mode nil)
-                      (send-rich-message chat-id :markdown @txt :preview false)))
+                (if result
+                  (send-rich-message chat-id :markdown result :preview false)
+                  (if (str/blank? @txt)
+                    (send-message chat-id "Извините, не получилось ответить." :parse-mode nil)
+                    (send-rich-message chat-id :markdown @txt :preview false)))
                   ;; Post-stream callback — for inline buttons, follow-up messages
-                  (when post-stream
-                    (try
-                      (post-stream chat-id user-id nil (str final-text))
-                      (catch Exception e
-                        (log/warn e :post-stream-error))))
-                  (observe/record!
-                   {:type :msg-out :dialogue-id dialogue-id
-                    :text-len (count (str final-text))}))
+                (when post-stream
+                  (try
+                    (post-stream chat-id user-id nil (str final-text))
+                    (catch Exception e
+                      (log/warn e :post-stream-error))))
+                (observe/record!
+                 {:type :msg-out :dialogue-id dialogue-id
+                  :text-len (count (str final-text))}))
               ;; Non-streaming fallback
               (do
                 (let [t0 (System/currentTimeMillis)

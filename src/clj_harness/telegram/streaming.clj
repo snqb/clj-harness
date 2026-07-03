@@ -71,22 +71,23 @@
 (defn- render-final
   "Render final accumulated text via Rich Messages API.
    Falls back to legacy HTML if Rich Messages unavailable."
-  [chat-id ^String text & {:keys [reply_markup]}]
+  [chat-id ^String text & {:keys [reply_markup thread-id]}]
   (let [result (tg/send-rich-message chat-id :markdown text :preview false
-                                     :reply-markup reply_markup)]
+                                     :reply-markup reply_markup
+                                     :thread-id thread-id)]
     (when-not result
       ;; Fallback: legacy md→html → split
       (let [html (fmt/md->html text)
             chunks (fmt/split-message html)]
         (if (= 1 (count chunks))
           (tg/send-message chat-id (first chunks)
-                           :parse-mode "HTML" :preview false :reply_markup reply_markup)
+                           :parse-mode "HTML" :preview false :reply_markup reply_markup :thread-id thread-id)
           (do
             (tg/send-message chat-id (first chunks)
-                             :parse-mode "HTML" :preview false :reply_markup reply_markup)
+                             :parse-mode "HTML" :preview false :reply_markup reply_markup :thread-id thread-id)
             (doseq [chunk (rest chunks)]
               (tg/send-message chat-id chunk
-                               :parse-mode "HTML" :preview false :reply_markup reply_markup))))))))
+                               :parse-mode "HTML" :preview false :reply_markup reply_markup :thread-id thread-id))))))))
 
 ;; ══════════════════════ MAIN ══════════════════════
 
@@ -99,12 +100,13 @@
      :placeholder    — initial message (default \"🧠 Думаю...\")
      :throttle-ms    — edit throttle interval in ms (default 800)
      :reset-button?  — attach '🔄 Новый диалог' ReplyKeyboardMarkup to final message
+     :thread-id      — message_thread_id for forum topics
 
    Uses sendRichMessageDraft for progressive streaming (ephemeral 30s previews)
    and sendRichMessage for the final persisted message.
 
    Returns a go-block that resolves to the final accumulated text."
-  [chat-id ch & {:keys [placeholder throttle-ms reset-button?]
+  [chat-id ch & {:keys [placeholder throttle-ms reset-button? thread-id]
                  :or {placeholder default-placeholder
                       throttle-ms default-throttle-ms}}]
   (let [reply_markup (when reset-button? (tg/reset-keyboard))
@@ -112,7 +114,7 @@
     (go
       (try
         ;; Send initial draft
-        (tg/send-rich-message-draft chat-id draft-id :markdown placeholder)
+        (tg/send-rich-message-draft chat-id draft-id :markdown placeholder :thread-id thread-id)
         (let [stop-ch (chan)
               tick-ch (ticker-chan throttle-ms stop-ch)
               acc (volatile! "")
@@ -124,21 +126,21 @@
                   (= port tick-ch)
                   (let [preview (fmt/streaming-preview @acc)]
                     (when (and (seq preview) (not= preview @last-preview))
-                      (tg/send-rich-message-draft chat-id draft-id :markdown preview)
+                      (tg/send-rich-message-draft chat-id draft-id :markdown preview :thread-id thread-id)
                       (vreset! last-preview preview))
                     (recur))
 
                   (nil? msg)
                   (let [text @acc]
                     (when (seq text)
-                      (render-final chat-id text :reply_markup reply_markup))
+                      (render-final chat-id text :reply_markup reply_markup :thread-id thread-id))
                     text)
 
                   :else
                   (case (msg-type msg)
                     :status
                     (let [text (fmt/strip-md (msg-text msg))]
-                      (tg/send-rich-message-draft chat-id draft-id :markdown text)
+                      (tg/send-rich-message-draft chat-id draft-id :markdown text :thread-id thread-id)
                       (vreset! last-preview text)
                       (vreset! acc "")
                       (recur))
@@ -150,7 +152,7 @@
 
                     :finish
                     (let [text @acc]
-                      (render-final chat-id text :reply_markup reply_markup)
+                      (render-final chat-id text :reply_markup reply_markup :thread-id thread-id)
                       text)
 
                     ;; Unknown type → ignore
@@ -161,7 +163,7 @@
         (catch Exception e
           (log/error e :stream-error)
           (try (tg/send-message chat-id "❌ Произошла ошибка. Попробуйте ещё раз."
-                                :reply_markup reply_markup)
+                                :reply_markup reply_markup :thread-id thread-id)
                (catch Exception _))
           nil)))))
 
