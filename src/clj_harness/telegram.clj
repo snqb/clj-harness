@@ -404,26 +404,35 @@
                allowed-updates (assoc "allowed_updates" allowed-updates))]
     (call "getUpdates" body :timeout-ms 70000)))
 
-(defn- parse-update
-  "Extract chat-id, user-id, first-name, text, location, thread-id from update."
+(defn parse-update
+  "Extract normalized message or callback data from a Telegram update."
   [update]
-  (when-let [msg (or (get update "message") (get update "edited_message"))]
-    (let [chat (get msg "chat")
-          user (get msg "from")
-          loc (get msg "location")
-          thread-id (get msg "message_thread_id")]
-      (when loc
-        (log/info :parse-update-location :has-location true :lat (get loc "latitude") :lon (get loc "longitude")))
-      (cond->
-       {:chat-id (get chat "id")
-        :user-id (get user "id")
-        :first-name (get user "first_name" "друг")
-        :text (get msg "text")
-        :message-id (get msg "message_id")}
-        thread-id (assoc :thread-id thread-id)
-        loc
-        (assoc :location {:lat (get loc "latitude")
-                          :lon (get loc "longitude")})))))
+  (if-let [cb (get update "callback_query")]
+    (let [from (get cb "from")
+          msg (get cb "message")]
+      (cond-> {:callback-id (get cb "id")
+               :data (get cb "data")
+               :user-id (get from "id")
+               :chat-id (get-in msg ["chat" "id"])
+               :msg-id (get msg "message_id")}
+        (get msg "message_thread_id")
+        (assoc :thread-id (get msg "message_thread_id"))))
+    (when-let [msg (or (get update "message") (get update "edited_message"))]
+      (let [chat (get msg "chat")
+            user (get msg "from")
+            loc (get msg "location")
+            thread-id (get msg "message_thread_id")]
+        (when loc
+          (log/info :parse-update-location :has-location true
+                    :lat (get loc "latitude") :lon (get loc "longitude")))
+        (cond-> {:chat-id (get chat "id")
+                 :user-id (get user "id")
+                 :first-name (get user "first_name" "друг")
+                 :text (get msg "text")
+                 :message-id (get msg "message_id")}
+          thread-id (assoc :thread-id thread-id)
+          loc (assoc :location {:lat (get loc "latitude")
+                                :lon (get loc "longitude")}))))))
 
 (defn poll-loop
   "Start polling loop. Calls handler-fn for each message.
