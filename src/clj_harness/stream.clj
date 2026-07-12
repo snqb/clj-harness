@@ -75,7 +75,8 @@
   (let [cfg (case provider-key
               :deepseek {:url "https://api.deepseek.com/v1/chat/completions"
                          :api-key (infra/read-api-key :deepseek)}
-              :openrouter {:url "https://openrouter.ai/api/v1/chat/completions"
+              :openrouter {:url (or (System/getenv "OPENROUTER_BASE_URL")
+                                    "https://openrouter.ai/api/v1/chat/completions")
                            :api-key (infra/read-api-key :openrouter)})]
     cfg))
 
@@ -95,7 +96,8 @@
   (let [cfg (provider-stream-config provider)
         headers (merge {"Authorization" (str "Bearer " (:api-key cfg))}
                        (case provider
-                         :openrouter {"HTTP-Referer" "http://localhost"}
+                         :openrouter {"HTTP-Referer" "http://localhost"
+                                      "User-Agent" "CljHarness/1.0"}
                          {}))
         body (cond-> {"model" model "messages" messages
                       "max_tokens" max-tokens "stream" true}

@@ -20,10 +20,12 @@
 (def ^:private provider-config
   "Data-driven provider dispatch. Each provider = {:url :headers}.
    :headers is a (fn [api-key] => map) to support different auth schemes."
-  {:openrouter {:url "https://openrouter.ai/api/v1/chat/completions"
+  {:openrouter {:url (or (System/getenv "OPENROUTER_BASE_URL")
+                         "https://openrouter.ai/api/v1/chat/completions")
                 :headers (fn [key] {"Authorization" (str "Bearer " key)
                                     "HTTP-Referer" "http://localhost"
-                                    "X-Title" "CljHarness"})}
+                                    "X-Title" "CljHarness"
+                                    "User-Agent" "CljHarness/1.0"})}
    :deepseek   {:url "https://api.deepseek.com/chat/completions"
                 :headers (fn [key] {"Authorization" (str "Bearer " key)})}})
 
