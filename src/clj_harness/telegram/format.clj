@@ -150,10 +150,27 @@
     (str/join "\n" (map #(row->bullet headers %) bullet-rows))))
 
 (defn- table-block->rendered
-  "Convert one Markdown table block: try monospace <pre> first, fall back to bullets."
+  "Convert one Markdown table block. Tables containing inline Markdown become
+   bullets so formatting and links stay active; plain compact tables use monospace."
   [lines]
-  (or (table-block->monospace lines)
-      (table-block->bullets lines)))
+  (if (some #(or (str/includes? % "](")
+                 (str/includes? % "==")) lines)
+    (table-block->bullets lines)
+    (or (table-block->monospace lines)
+        (table-block->bullets lines))))
+
+(defn- expand-inline-table-rows
+  "Recover LLM tables whose row newlines were collapsed into `| |`.
+   Only touches lines containing a Markdown separator row signature."
+  [text]
+  (str/join
+   "\n"
+   (map (fn [line]
+          (if (and (re-find #"\|\s*:?-{3,}:?\s*\|" line)
+                   (re-find #"\|\s+\|" line))
+            (str/replace line #"\|\s+\|" "|\n|")
+            line))
+        (str/split-lines (or text "")))))
 
 (defn rewrite-markdown-tables
   "Rewrite Markdown tables into Telegram-friendly format.
@@ -168,8 +185,9 @@
               (empty? block) out
               (markdown-table-block? block) (conj out (table-block->rendered block))
               :else (into out block)))]
-    (let [lines (str/split-lines (or text ""))
-          trailing-newline? (str/ends-with? (or text "") "\n")
+    (let [trailing-newline? (str/ends-with? (or text "") "\n")
+          text (expand-inline-table-rows text)
+          lines (str/split-lines text)
           rewritten (loop [remaining lines
                            out []
                            block []]
@@ -252,11 +270,12 @@
     7. __underline__ → <u>
     8. *italic* → <i>
     9. ~~strikethrough~~ → <s>
-    10. [text](url) → <a href='url'>text</a>
-    11. - bullet → • bullet
-    12. Normalize numbered lists
-    13. Restore inline code with <code>
-    14. Horizontal rules --- → —"
+    10. ==highlight== → <b>
+    11. [text](url) → <a href='url'>text</a>
+    12. - bullet → • bullet
+    13. Normalize numbered lists
+    14. Restore inline code with <code>
+    15. Horizontal rules --- → —"
   [^String text]
   (if (str/blank? text)
     text
@@ -286,8 +305,10 @@
           t8 (str/replace t7 #"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])" "<i>$1</i>")
           ;; Step 9: ~~strikethrough~~
           t9 (str/replace t8 #"~~(.+?)~~" "<s>$1</s>")
+          ;; Step 9.5: ==highlight== (common LLM/Obsidian syntax)
+          t9a (str/replace t9 #"==(.+?)==" "<b>$1</b>")
           ;; Step 10: [text](url) → <a>
-          t10 (str/replace t9 #"\[([^\]]+)\]\(([^)]+)\)"
+          t10 (str/replace t9a #"\[([^\]]+)\]\(([^)]+)\)"
                            "<a href='$2'>$1</a>")
           ;; Step 11: Bullets
           t11 (str/replace t10 #"(?m)^[-*]\s+" "• ")

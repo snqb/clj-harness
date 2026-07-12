@@ -77,3 +77,22 @@
       ;; Should still produce valid output (either mono or bullets)
       (is (string? result))
       (is (pos? (count result))))))
+
+(deftest linked-marketplace-tables-become-clickable-bullets
+  (let [markdown (str "| Модель | Цена | Город |\n"
+                      "| --- | ---: | --- |\n"
+                      "| [MacBook Pro](https://lalafo.kg/ad/1) | ==100 500 сом== | Бишкек |")
+        html (fmt/md->html markdown)]
+    (is (str/includes? html "• Модель:"))
+    (is (str/includes? html "<a href='https://lalafo.kg/ad/1'>MacBook Pro</a>"))
+    (is (str/includes? html "<b>100 500 сом</b>"))
+    (is (not (str/includes? html "| ---")))
+    (is (not (str/includes? html "==")))))
+
+(deftest collapsed-single-line-table-is-recovered
+  (let [markdown "| Показатель | Значение | |---|---| | Цена | ==100 500 сом== |"
+        html (fmt/md->html markdown)]
+    (is (str/includes? html "• Показатель:"))
+    (is (str/includes? html "<b>100 500 сом</b>"))
+    (is (not (str/includes? html "|---|")))
+    (is (not (str/includes? html "==")))))
