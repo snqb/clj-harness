@@ -46,11 +46,17 @@
 
 ;; ══════════════════════ HTTP ══════════════════════
 
+(def ^:private proxy-url
+  (some-> (System/getenv "TELEGRAM_PROXY_URL")
+          str/trim not-empty (str/replace #"/+$" "")))
+
 (defn- call
   "Raw Telegram API call. Returns parsed JSON with string keys, or nil on error."
   [method body & {:keys [max-retries timeout-ms] :or {max-retries 3 timeout-ms 65000}}]
   (let [tk (token)
-        url (str api-base "/bot" tk "/" method)
+        url (if proxy-url
+              (str proxy-url "/" method)
+              (str api-base "/bot" tk "/" method))
         client (-> (HttpClient/newBuilder)
                    (.version HttpClient$Version/HTTP_1_1)
                    (.connectTimeout (Duration/ofMillis 10000))
@@ -59,6 +65,7 @@
       (let [builder (doto (HttpRequest/newBuilder (URI/create url))
                       (.timeout (Duration/ofMillis timeout-ms))
                       (.header "Content-Type" "application/json"))
+            _ (when proxy-url (.header builder "Authorization" (str "Bearer " tk)))
             _ (.POST builder (HttpRequest$BodyPublishers/ofString (json/generate-string body)))
             resp (.send client (.build builder) (HttpResponse$BodyHandlers/ofString))
             status (.statusCode resp)]
@@ -386,6 +393,21 @@
       (catch Exception e
         (log/error e :send-photo-failed)
         nil))))
+
+;; ══════════════════════ WEBHOOK ADMINISTRATION ══════════════════════
+
+(defn set-webhook
+  "Register a webhook through the same authenticated transport as other calls."
+  [webhook-url & {:keys [secret-token allowed-updates]}]
+  (call "setWebhook"
+        (cond-> {"url" webhook-url}
+          secret-token (assoc "secret_token" secret-token)
+          allowed-updates (assoc "allowed_updates" allowed-updates))))
+
+(defn delete-webhook
+  "Remove the webhook without discarding queued updates."
+  []
+  (call "deleteWebhook" {"drop_pending_updates" false}))
 
 ;; ══════════════════════ POLLING ══════════════════════
 

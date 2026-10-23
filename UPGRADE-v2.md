@@ -36,6 +36,18 @@ pending message. The first request runs inside the existing poll-error handler,
 so an initial connection failure no longer terminates the worker. Callers that
 intentionally discard pending updates must do so explicitly before polling.
 
+### Telegram egress relay
+
+`TELEGRAM_PROXY_URL` optionally selects an HTTPS relay base. Calls append only
+the method name and authenticate with the current bot token in the
+`Authorization: Bearer …` header, never in the relay URL. The relay must authorize
+that specific bot and restrict methods; it is not a generic HTTP proxy.
+
+Sending, polling, `set-webhook`, and `delete-webhook` use the same transport.
+Deleting a webhook preserves pending updates. Without the relay setting, the
+official Telegram Bot API remains the transport.
+
+
 
 ### B. Clojars (if opensource)
 
