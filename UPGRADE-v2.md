@@ -47,6 +47,9 @@ Sending, polling, `set-webhook`, and `delete-webhook` use the same transport.
 Deleting a webhook preserves pending updates. Without the relay setting, the
 official Telegram Bot API remains the transport.
 
+For dispatchers that coalesce updates in arrival order, register the webhook with
+`:max-connections 1`; requests can still enqueue work on a bounded executor.
+
 
 
 ### B. Clojars (if opensource)

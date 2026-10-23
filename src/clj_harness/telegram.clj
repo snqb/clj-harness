@@ -398,11 +398,12 @@
 
 (defn set-webhook
   "Register a webhook through the same authenticated transport as other calls."
-  [webhook-url & {:keys [secret-token allowed-updates]}]
+  [webhook-url & {:keys [secret-token allowed-updates max-connections]}]
   (call "setWebhook"
         (cond-> {"url" webhook-url}
           secret-token (assoc "secret_token" secret-token)
-          allowed-updates (assoc "allowed_updates" allowed-updates))))
+          allowed-updates (assoc "allowed_updates" allowed-updates)
+          max-connections (assoc "max_connections" max-connections))))
 
 (defn delete-webhook
   "Remove the webhook without discarding queued updates."
