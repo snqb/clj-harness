@@ -29,6 +29,14 @@ Tag releases (`git tag v2.0.0`) and use `:git/tag` instead of SHA.
 
 **Tradeoff**: need to remember to update SHA. But explicit breakage > silent breakage.
 
+### Telegram polling startup
+
+`poll-loop` starts with unacknowledged updates rather than discarding the latest
+pending message. The first request runs inside the existing poll-error handler,
+so an initial connection failure no longer terminates the worker. Callers that
+intentionally discard pending updates must do so explicitly before polling.
+
+
 ### B. Clojars (if opensource)
 
 `clj-harness "0.2.0"` — real versioning, real SemVer. Dependents bump when ready.

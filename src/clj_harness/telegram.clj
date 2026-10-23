@@ -435,7 +435,8 @@
                                 :lon (get loc "longitude")}))))))
 
 (defn poll-loop
-  "Start polling loop. Calls handler-fn for each message.
+  "Start polling loop. Calls handler-fn for each unacknowledged message.
+   Startup requests use the same error handling as subsequent poll cycles.
    handler-fn receives: {:keys [chat-id user-id first-name text]}
 
    Options:
@@ -446,10 +447,7 @@
    Returns immediately — runs on current thread.
    Wrap in (future ...) or Thread/start for async."
   [handler-fn & {:keys [interval-ms allowed-updates] :or {interval-ms 1500}}]
-  (let [init (get-updates :offset -1 :limit 1 :timeout 1
-                          :allowed-updates allowed-updates)
-        offset (atom (if-let [u (first (get init "result" []))]
-                       (inc (get u "update_id")) 0))]
+  (let [offset (atom 0)]
     (log/info :poll-start :offset @offset)
     (while true
       (try
